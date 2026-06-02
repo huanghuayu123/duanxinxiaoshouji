@@ -896,7 +896,6 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
     moved = false;
 
     el.classList.add('pa-dragging');
-    handle.setPointerCapture?.(event.pointerId);
 
     const onMove = (moveEvent: PointerEvent) => {
       const dx = moveEvent.clientX - startX;
@@ -909,7 +908,6 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
       doc.removeEventListener('pointermove', onMove);
       doc.removeEventListener('pointerup', onUp);
       doc.removeEventListener('pointercancel', onUp);
-      handle.releasePointerCapture?.(upEvent.pointerId);
       el.classList.remove('pa-dragging');
 
       if (moved) {
