@@ -758,31 +758,6 @@ function createUI(parentId: string): void {
   container.appendChild(fab);
   restorePosition('fab', fab);
 
-  const emergency = doc.createElement('button');
-  emergency.id = 'pa-emergency-open';
-  emergency.type = 'button';
-  emergency.textContent = '打开小手机';
-  emergency.title = '打开小手机';
-  Object.assign(emergency.style, {
-    position: 'fixed',
-    left: '10px',
-    bottom: '10px',
-    zIndex: '2147483647',
-    pointerEvents: 'auto',
-    padding: '8px 12px',
-    borderRadius: '8px',
-    border: '1px solid rgba(255,255,255,.35)',
-    background: '#111827',
-    color: '#fff',
-    fontSize: '13px',
-    fontWeight: '700',
-    lineHeight: '1',
-    boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-    cursor: 'pointer',
-  });
-  emergency.onclick = () => togglePanel(true);
-  container.appendChild(emergency);
-
   // Panel
   const panel = doc.createElement('div');
   panel.id = 'pa-panel';
@@ -891,7 +866,7 @@ function togglePanel(show?: boolean): void {
   panelVisible = show !== undefined ? show : !panelVisible;
 
   panel.classList.toggle('pa-panel--hidden', !panelVisible);
-  fab.classList.toggle('pa-fab--hidden', panelVisible);
+  fab.classList.remove('pa-fab--hidden');
   updateQuickReplyButtonState();
 
   if (panelVisible) {
@@ -950,11 +925,36 @@ function renderMessages(): void {
     bubble.className = 'pa-msg__bubble';
     bubble.textContent = msg.content;
 
+    const actions = doc.createElement('div');
+    actions.className = 'pa-msg__actions';
+
+    const editBtn = doc.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'pa-msg__action';
+    editBtn.textContent = '编辑';
+    editBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      editMessage(msg.id);
+    });
+
+    const deleteBtn = doc.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'pa-msg__action pa-msg__action--danger';
+    deleteBtn.textContent = '删除';
+    deleteBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      deleteMessage(msg.id);
+    });
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
     const time = doc.createElement('div');
     time.className = 'pa-msg__time';
     time.textContent = timeStr(msg.ts);
 
     div.appendChild(bubble);
+    div.appendChild(actions);
     div.appendChild(time);
     msgsEl.appendChild(div);
   }
@@ -995,9 +995,8 @@ function renderSettings(): void {
   // Update status bar title
   const title = getUiDocument().getElementById('pa-title');
   if (title) {
-    const charName = getCharName();
     const userName = getUserName();
-    title.textContent = `${userName} · ${charName}`;
+    title.textContent = `${userName} · {{char}}`;
   }
 }
 
@@ -1064,6 +1063,24 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
     doc.addEventListener('pointerup', onUp, { capture: true });
     doc.addEventListener('pointercancel', onUp, { capture: true });
   }, { capture: true });
+}
+
+function deleteMessage(id: string): void {
+  saveMessages(loadMessages().filter(msg => msg.id !== id));
+  renderMessages();
+}
+
+function editMessage(id: string): void {
+  const msgs = loadMessages();
+  const msg = msgs.find(item => item.id === id);
+  if (!msg) return;
+  const next = prompt('编辑消息', msg.content);
+  if (next === null) return;
+  const trimmed = next.trim();
+  if (!trimmed) return;
+  msg.content = trimmed;
+  saveMessages(msgs);
+  renderMessages();
 }
 
 function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string): void {
@@ -1188,7 +1205,7 @@ function bindFabCaptureGuard(fab: HTMLElement): void {
     const target = event.target as HTMLElement | null;
     if (!target?.closest('#pa-fab')) return;
     event.stopPropagation();
-    togglePanel(true);
+    togglePanel();
   };
 
   doc.addEventListener('click', openFromFab, { capture: true });
@@ -1216,22 +1233,6 @@ function ensureFabVisible(): void {
   placeElement(fab, rect.left || 24, rect.top || 24);
 }
 
-function exposeOpenHandle(): void {
-  const parent = getParent();
-  const open = () => {
-    togglePanel(true);
-    ensureFabVisible();
-  };
-  try {
-    (window as unknown as Record<string, unknown>).openXiaoShouJi = open;
-    if (parent) {
-      (parent as unknown as Record<string, unknown>).openXiaoShouJi = open;
-    }
-  } catch {
-    // ignore
-  }
-}
-
 function bindEvents(): void {
   // FAB click - open panel
   const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
@@ -1240,37 +1241,17 @@ function bindEvents(): void {
 
   if (fab) {
     setupBasicDraggable(fab, fab, 'fab');
-    fab.addEventListener('click', () => togglePanel(true));
-    fab.onclick = () => togglePanel(true);
+    fab.addEventListener('click', () => togglePanel());
+    fab.onclick = () => togglePanel();
     fab.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        togglePanel(true);
+        togglePanel();
       }
     });
-    bindTouchFallback(fab, () => togglePanel(true));
+    bindTouchFallback(fab, () => togglePanel());
     bindFabCaptureGuard(fab);
   }
-
-  const emergency = getUiDocument().getElementById('pa-emergency-open') as HTMLButtonElement | null;
-  if (emergency) {
-    emergency.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      togglePanel(true);
-    }, { capture: true });
-    emergency.addEventListener('touchend', (event) => {
-      event.stopPropagation();
-      togglePanel(true);
-    }, { capture: true, passive: true });
-  }
-
-  getUiDocument().addEventListener('keydown', (event) => {
-    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'm') {
-      event.preventDefault();
-      togglePanel(true);
-    }
-  }, { capture: true });
 
   if (panel && statusbar) {
     setupBasicDraggable(panel, statusbar, 'panel');
@@ -1427,7 +1408,6 @@ function init(): void {
     console.warn('[PA] initial render failed:', err);
   }
   bindEvents();
-  exposeOpenHandle();
   try {
     setupQuickReplyButton();
   } catch (err) {

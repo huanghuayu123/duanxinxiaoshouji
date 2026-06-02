@@ -34,19 +34,8 @@
 }
 
 #pa-script-root .pa-fab,
-#pa-script-root .pa-panel,
-#pa-script-root #pa-emergency-open {
+#pa-script-root .pa-panel {
   pointer-events: auto !important;
-}
-
-#pa-emergency-open {
-  touch-action: manipulation !important;
-  user-select: none !important;
-}
-
-.pa-panel:not(.pa-panel--hidden) + #pa-emergency-open,
-#pa-script-root:has(.pa-panel:not(.pa-panel--hidden)) #pa-emergency-open {
-  display: none !important;
 }
 
 /* Floating FAB */
@@ -246,6 +235,34 @@
   padding: 0 4px;
 }
 .pa-msg--user .pa-msg__time { text-align: right; }
+
+.pa-msg__actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 3px;
+  opacity: 0.72;
+}
+.pa-msg--user .pa-msg__actions {
+  justify-content: flex-end;
+}
+.pa-msg__action {
+  border: none;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--phone-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 6px;
+}
+.pa-msg__action:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--phone-text);
+}
+.pa-msg__action--danger:hover {
+  background: rgba(255, 69, 58, 0.2);
+  color: var(--phone-danger);
+}
 
 /* Input Area */
 .pa-input {
