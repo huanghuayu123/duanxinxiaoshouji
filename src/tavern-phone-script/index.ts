@@ -432,7 +432,9 @@ function phoneToTavernBridge(content: string): void {
   const settings = loadSettings();
   if (!settings.phoneToTavern) return;
 
-  const sent = sendToTavernInput(content);
+  const tag = settings.outTag.trim() || DEFAULT_SMS_TAG;
+  const tavernContent = `<${tag}>${content}</${tag}>`;
+  const sent = sendToTavernInput(tavernContent);
 
   if (!sent && settings.autoTrigger) {
     try {
@@ -1072,6 +1074,7 @@ function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: s
   let startTop = 0;
   let moved = false;
   let dragging = false;
+  let ignoreNextClick = false;
 
   const readPoint = (event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
     if ('touches' in event) {
@@ -1096,6 +1099,7 @@ function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: s
     moved = false;
     dragging = true;
     el.classList.add('pa-dragging');
+    if ('cancelable' in event && event.cancelable) event.preventDefault();
     event.stopPropagation();
   };
 
@@ -1116,6 +1120,7 @@ function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: s
     dragging = false;
     el.classList.remove('pa-dragging');
     if (moved) {
+      ignoreNextClick = true;
       savePosition(storageKey, el);
     } else if (el.id === 'pa-fab') {
       togglePanel(true);
@@ -1123,13 +1128,21 @@ function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: s
     event.stopPropagation();
   };
 
+  el.addEventListener('click', (event) => {
+    if (!ignoreNextClick) return;
+    ignoreNextClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
+
   handle.addEventListener('mousedown', start, { capture: true });
   handle.addEventListener('touchstart', start, { capture: true, passive: false });
-  doc.addEventListener('mousemove', move, { capture: true });
-  doc.addEventListener('touchmove', move, { capture: true, passive: false });
-  doc.addEventListener('mouseup', end, { capture: true });
-  doc.addEventListener('touchend', end, { capture: true });
-  doc.addEventListener('touchcancel', end, { capture: true });
+  window.addEventListener('mousemove', move, { capture: true });
+  window.addEventListener('touchmove', move, { capture: true, passive: false });
+  window.addEventListener('mouseup', end, { capture: true });
+  window.addEventListener('touchend', end, { capture: true });
+  window.addEventListener('touchcancel', end, { capture: true });
+  doc.addEventListener('mouseleave', end, { capture: true });
 }
 
 function bindTouchFallback(el: HTMLElement, action: () => void): void {
@@ -1226,7 +1239,6 @@ function bindEvents(): void {
   const statusbar = getUiDocument().querySelector('#pa-panel .pa-statusbar') as HTMLElement | null;
 
   if (fab) {
-    setupDraggable(fab, fab, 'fab');
     setupBasicDraggable(fab, fab, 'fab');
     fab.addEventListener('click', () => togglePanel(true));
     fab.onclick = () => togglePanel(true);
@@ -1261,7 +1273,6 @@ function bindEvents(): void {
   }, { capture: true });
 
   if (panel && statusbar) {
-    setupDraggable(panel, statusbar, 'panel');
     setupBasicDraggable(panel, statusbar, 'panel');
   }
 
