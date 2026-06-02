@@ -1,4 +1,4 @@
-﻿import phoneCss from '../tavern-phone-assistant/styles.css?raw';
+import phoneCss from '../tavern-phone-assistant/styles.css?raw';
 
 // ────────────────────────────── Types ──────────────────────────────
 
@@ -877,8 +877,6 @@ function setToggle(id: string, on: boolean): void {
 
 // ────────────────────────────── Event Binding ──────────────────────
 
-let suppressFabClick = false;
-
 function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string): void {
   const doc = getUiDocument();
   let moved = false;
@@ -896,6 +894,7 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
     moved = false;
 
     el.classList.add('pa-dragging');
+    handle.setPointerCapture?.(event.pointerId);
 
     const onMove = (moveEvent: PointerEvent) => {
       const dx = moveEvent.clientX - startX;
@@ -908,16 +907,13 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
       doc.removeEventListener('pointermove', onMove);
       doc.removeEventListener('pointerup', onUp);
       doc.removeEventListener('pointercancel', onUp);
+      handle.releasePointerCapture?.(upEvent.pointerId);
       el.classList.remove('pa-dragging');
 
       if (moved) {
         savePosition(storageKey, el);
-        if (el.id === 'pa-fab') {
-          suppressFabClick = true;
-          setTimeout(() => {
-            suppressFabClick = false;
-          }, 80);
-        }
+      } else if (el.id === 'pa-fab') {
+        togglePanel(true);
       }
     };
 
@@ -935,14 +931,6 @@ function bindEvents(): void {
 
   if (fab) {
     setupDraggable(fab, fab, 'fab');
-    fab.addEventListener('click', (event) => {
-      if (suppressFabClick) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      togglePanel(true);
-    });
   }
 
   if (panel && statusbar) {
