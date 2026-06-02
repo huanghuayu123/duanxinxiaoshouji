@@ -695,7 +695,13 @@ function ensureQuickReplyButton(): boolean {
   button.textContent = '手机';
   button.title = '打开/关闭手机消息';
   button.setAttribute('aria-label', '打开或关闭手机消息面板');
-  bindSafeTap(button, () => togglePanel());
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (wasRecentTouchTap(button)) return;
+    togglePanel();
+  });
+  bindTouchFallback(button, () => togglePanel());
 
   host.appendChild(button);
   updateQuickReplyButtonState();
@@ -1010,11 +1016,10 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
   });
 }
 
-function bindSafeTap(el: HTMLElement, action: () => void): void {
+function bindTouchFallback(el: HTMLElement, action: () => void): void {
   let touchMoved = false;
   let startX = 0;
   let startY = 0;
-  let lastTouchAt = 0;
 
   el.addEventListener('touchstart', (event) => {
     const touch = event.changedTouches[0];
@@ -1034,18 +1039,14 @@ function bindSafeTap(el: HTMLElement, action: () => void): void {
 
   el.addEventListener('touchend', (event) => {
     if (touchMoved) return;
-    event.preventDefault();
-    event.stopPropagation();
-    lastTouchAt = Date.now();
+    el.dataset.paLastTouchTap = String(Date.now());
     action();
-  }, { passive: false });
+  }, { passive: true });
+}
 
-  el.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (Date.now() - lastTouchAt < 450) return;
-    action();
-  });
+function wasRecentTouchTap(el: HTMLElement): boolean {
+  const last = Number(el.dataset.paLastTouchTap || 0);
+  return Number.isFinite(last) && Date.now() - last < 450;
 }
 
 function bindEvents(): void {
@@ -1056,7 +1057,8 @@ function bindEvents(): void {
 
   if (fab) {
     setupDraggable(fab, fab, 'fab');
-    bindSafeTap(fab, () => togglePanel(true));
+    fab.addEventListener('click', () => togglePanel(true));
+    bindTouchFallback(fab, () => togglePanel(true));
   }
 
   if (panel && statusbar) {

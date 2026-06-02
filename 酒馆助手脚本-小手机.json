@@ -3,8 +3,8 @@
     "enabled":  true,
     "name":  "小手机",
     "id":  "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-    "content":  "import \u0027https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0\u0027\n",
-    "info":  "小手机短信悬浮窗 v1.0。悬浮窗和手机窗口顶部可拖动；手机端触摸打开已增强；发送桥会写入酒馆输入框并触发酒馆发送按钮。",
+    "content":  "import \u0027https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.1\u0027\n",
+    "info":  "小手机短信悬浮窗 v1.0.1。恢复电脑端普通点击打开；手机端只保留轻量触摸补充；发送桥会写入酒馆输入框并触发酒馆发送按钮。",
     "button":  {
                    "enabled":  true,
                    "buttons":  [
