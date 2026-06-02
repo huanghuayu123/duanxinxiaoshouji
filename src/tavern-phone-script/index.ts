@@ -756,6 +756,31 @@ function createUI(parentId: string): void {
   container.appendChild(fab);
   restorePosition('fab', fab);
 
+  const emergency = doc.createElement('button');
+  emergency.id = 'pa-emergency-open';
+  emergency.type = 'button';
+  emergency.textContent = '打开小手机';
+  emergency.title = '打开小手机';
+  Object.assign(emergency.style, {
+    position: 'fixed',
+    left: '10px',
+    bottom: '10px',
+    zIndex: '2147483647',
+    pointerEvents: 'auto',
+    padding: '8px 12px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,.35)',
+    background: '#111827',
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: '700',
+    lineHeight: '1',
+    boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+    cursor: 'pointer',
+  });
+  emergency.onclick = () => togglePanel(true);
+  container.appendChild(emergency);
+
   // Panel
   const panel = doc.createElement('div');
   panel.id = 'pa-panel';
@@ -1178,6 +1203,22 @@ function ensureFabVisible(): void {
   placeElement(fab, rect.left || 24, rect.top || 24);
 }
 
+function exposeOpenHandle(): void {
+  const parent = getParent();
+  const open = () => {
+    togglePanel(true);
+    ensureFabVisible();
+  };
+  try {
+    (window as unknown as Record<string, unknown>).openXiaoShouJi = open;
+    if (parent) {
+      (parent as unknown as Record<string, unknown>).openXiaoShouJi = open;
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function bindEvents(): void {
   // FAB click - open panel
   const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
@@ -1198,6 +1239,26 @@ function bindEvents(): void {
     bindTouchFallback(fab, () => togglePanel(true));
     bindFabCaptureGuard(fab);
   }
+
+  const emergency = getUiDocument().getElementById('pa-emergency-open') as HTMLButtonElement | null;
+  if (emergency) {
+    emergency.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePanel(true);
+    }, { capture: true });
+    emergency.addEventListener('touchend', (event) => {
+      event.stopPropagation();
+      togglePanel(true);
+    }, { capture: true, passive: true });
+  }
+
+  getUiDocument().addEventListener('keydown', (event) => {
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'm') {
+      event.preventDefault();
+      togglePanel(true);
+    }
+  }, { capture: true });
 
   if (panel && statusbar) {
     setupDraggable(panel, statusbar, 'panel');
@@ -1348,14 +1409,27 @@ function init(): void {
   root.innerHTML = '';
 
   createUI(rootId);
-  renderMessages();
-  renderSettings();
+  try {
+    renderMessages();
+    renderSettings();
+  } catch (err) {
+    console.warn('[PA] initial render failed:', err);
+  }
   bindEvents();
-  setupQuickReplyButton();
+  exposeOpenHandle();
+  try {
+    setupQuickReplyButton();
+  } catch (err) {
+    console.warn('[PA] quick reply button failed:', err);
+  }
 
   // Setup tavern event listeners
-  setupTavernListeners();
-  handleTavernMessages();
+  try {
+    setupTavernListeners();
+    handleTavernMessages();
+  } catch (err) {
+    console.warn('[PA] tavern listeners failed:', err);
+  }
 
   // Try to detect current character name and update
   const st = getSillyTavern();

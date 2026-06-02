@@ -34,9 +34,21 @@
 }
 
 #pa-script-root .pa-fab,
-#pa-script-root .pa-panel {
+#pa-script-root .pa-panel,
+#pa-script-root #pa-emergency-open {
   pointer-events: auto !important;
 }
+
+#pa-emergency-open {
+  touch-action: manipulation !important;
+  user-select: none !important;
+}
+
+.pa-panel:not(.pa-panel--hidden) + #pa-emergency-open,
+#pa-script-root:has(.pa-panel:not(.pa-panel--hidden)) #pa-emergency-open {
+  display: none !important;
+}
+
 /* Floating FAB */
 .pa-fab {
   position: fixed;
