@@ -1,4 +1,5 @@
-﻿:root {
+﻿#pa-script-root,
+#app {
   --phone-bg: #1c1c1e;
   --phone-surface: #2c2c2e;
   --phone-border: rgba(255, 255, 255, 0.1);
@@ -15,25 +16,14 @@
   --phone-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
   --phone-radius: 16px;
   --phone-radius-sm: 10px;
-}
-
-* {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-}
-
-body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
     'PingFang SC', 'Helvetica Neue', system-ui, sans-serif;
-  background: transparent;
   color: var(--phone-text);
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
   -webkit-font-smoothing: antialiased;
 }
-
 /* Floating FAB */
 .pa-fab {
   position: fixed;
@@ -90,6 +80,7 @@ body {
   animation: pa-slide-up 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  touch-action: manipulation;
 }
 
 @keyframes pa-slide-up {
@@ -107,6 +98,8 @@ body {
   padding: 12px 14px;
   border-bottom: 1px solid var(--phone-border);
   flex-shrink: 0;
+  touch-action: none;
+  user-select: none;
 }
 .pa-statusbar__title {
   flex: 1;
@@ -137,6 +130,7 @@ body {
   align-items: center;
   justify-content: center;
   transition: background 0.15s;
+  touch-action: manipulation;
 }
 .pa-statusbar__btn:hover {
   background: var(--phone-input-bg);
@@ -420,3 +414,4 @@ body {
     padding: 9px 10px;
   }
 }
+

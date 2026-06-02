@@ -1,4 +1,4 @@
-import phoneCss from '../tavern-phone-assistant/styles.css?raw';
+﻿import phoneCss from '../tavern-phone-assistant/styles.css?raw';
 
 // ────────────────────────────── Types ──────────────────────────────
 
@@ -256,59 +256,149 @@ function extractTagContent(text: string, tag: string): string[] {
 }
 
 /** Send text to SillyTavern chat input */
+function findTavernInput(doc: Document): HTMLElement | null {
+  const selectors = [
+    '#send_textarea',
+    'textarea#send_textarea',
+    'textarea.send_text',
+    '#send_form textarea',
+    '.send_form textarea',
+    '#send_form [contenteditable="true"]',
+    '[contenteditable="true"][role="textbox"]',
+  ];
+
+  for (const selector of selectors) {
+    const el = doc.querySelector<HTMLElement>(selector);
+    if (el && !el.closest('#pa-script-root')) return el;
+  }
+
+  return null;
+}
+
+function dispatchInputEvent(el: HTMLElement, win: Window, text: string): void {
+  try {
+    el.dispatchEvent(new win.InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
+  } catch {
+    el.dispatchEvent(new win.Event('input', { bubbles: true }));
+  }
+  el.dispatchEvent(new win.Event('change', { bubbles: true }));
+  el.dispatchEvent(new win.KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+}
+
+function setTavernInputText(el: HTMLElement, text: string, win: Window): void {
+  if (el instanceof win.HTMLTextAreaElement || el instanceof win.HTMLInputElement) {
+    const valueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+    if (valueSetter) {
+      valueSetter.call(el, text);
+    } else {
+      el.value = text;
+    }
+  } else if (el.isContentEditable) {
+    el.textContent = text;
+  }
+
+  dispatchInputEvent(el, win, text);
+}
+
+function getTavernInputText(el: HTMLElement, win: Window): string {
+  if (el instanceof win.HTMLTextAreaElement || el instanceof win.HTMLInputElement) return el.value;
+  return el.textContent ?? '';
+}
+
+function findTavernSendButton(doc: Document): HTMLElement | null {
+  const selectors = [
+    '#send_but',
+    '#send_form #send_but',
+    '.send_button',
+    '.mes_btn_send',
+    'button[title="Send"]',
+    'button[aria-label="Send"]',
+    '#send_form button[type="button"]',
+    '#send_form button',
+  ];
+
+  for (const selector of selectors) {
+    const el = doc.querySelector<HTMLElement>(selector);
+    if (el && !el.closest('#pa-script-root')) return el;
+  }
+
+  return null;
+}
+
+function activateTavernSendButton(sendBtn: HTMLElement, win: Window): void {
+  sendBtn.dispatchEvent(new win.MouseEvent('pointerdown', { bubbles: true, cancelable: true, view: win }));
+  sendBtn.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, view: win }));
+  sendBtn.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true, cancelable: true, view: win }));
+  sendBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win }));
+  sendBtn.click?.();
+}
+
+/** Send text to SillyTavern chat input */
 function sendToTavernInput(text: string): boolean {
   try {
     const parent = getParent();
     if (!parent) {
-      parentToast('无法访问酒馆页面', 'error');
+      parentToast('Cannot access tavern page', 'error');
       return false;
     }
 
     const doc = parent.document;
-    const ta = doc.querySelector<HTMLTextAreaElement>(
-      '#send_textarea, textarea#send_textarea, textarea.send_text, #send_form textarea, .send_form textarea'
-    );
-    if (!ta) {
-      parentToast('未找到酒馆输入框', 'warning');
+    const win = doc.defaultView ?? parent;
+    const input = findTavernInput(doc);
+    if (!input) {
+      parentToast('Cannot find tavern input box', 'warning');
       return false;
     }
 
-    const parentWindow = doc.defaultView ?? parent;
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      parentWindow.HTMLTextAreaElement.prototype,
-      'value'
-    )?.set;
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(ta, text);
-    } else {
-      ta.value = text;
+    setTavernInputText(input, text, win);
+
+    const jq = (parent as unknown as { $?: unknown }).$;
+    if (typeof jq === 'function') {
+      const $ = jq as (el: Element) => { val?: (value: string) => unknown; trigger: (event: string) => unknown };
+      const wrapped = $(input);
+      wrapped.val?.(text);
+      wrapped.trigger('input');
+      wrapped.trigger('change');
+      wrapped.trigger('keyup');
     }
 
-    ta.dispatchEvent(new parentWindow.Event('input', { bubbles: true }));
-    ta.dispatchEvent(new parentWindow.Event('change', { bubbles: true }));
-    if ('$' in parent && typeof (parent as unknown as { $?: unknown }).$ === 'function') {
-      ((parent as unknown as { $: (el: Element) => { trigger: (event: string) => void } }).$(ta)).trigger('input');
-    }
+    input.focus();
 
-    ta.focus();
-
-    const sendBtn = doc.querySelector<HTMLElement>(
-      '#send_but, #send_form #send_but, .send_button, button[title="Send"], .mes_btn_send'
-    );
-    if (sendBtn) {
-      sendBtn.click();
-      parentToast('已通过输入框发送', 'success');
-      return true;
-    } else {
-      parentToast('消息已填入输入框，请手动发送', 'info');
+    const sendBtn = findTavernSendButton(doc);
+    if (!sendBtn) {
+      parentToast('Message filled into tavern input, send button not found', 'info');
       return false;
     }
+
+    if (typeof jq === 'function') {
+      const wrappedSend = (jq as (el: Element) => { trigger: (event: string) => unknown })(sendBtn);
+      wrappedSend.trigger('mousedown');
+      wrappedSend.trigger('mouseup');
+      wrappedSend.trigger('click');
+    } else {
+      activateTavernSendButton(sendBtn, win);
+    }
+    activateTavernSendButton(sendBtn, win);
+
+    setTimeout(() => {
+      if (getTavernInputText(input, win).trim() === text.trim()) {
+        input.dispatchEvent(new win.KeyboardEvent('keydown', {
+          bubbles: true,
+          cancelable: true,
+          key: 'Enter',
+          code: 'Enter',
+        }));
+        sendToTavernAPI(text);
+      }
+    }, 80);
+
+    parentToast('Sent through tavern input', 'success');
+    return true;
   } catch (err) {
-    parentToast(`发送失败: ${String(err)}`, 'error');
+    parentToast(`Send failed: ${String(err)}`, 'error');
     return false;
   }
 }
-
 /** Directly call tavern's sendMessage API if available */
 function sendToTavernAPI(text: string): boolean {
   try {
@@ -538,6 +628,7 @@ function injectQuickReplyStyle(doc: Document): void {
       line-height: 1.2;
       cursor: pointer;
       user-select: none;
+      touch-action: manipulation;
       vertical-align: middle;
     }
     .pa-qr-button:hover,
@@ -604,11 +695,7 @@ function ensureQuickReplyButton(): boolean {
   button.textContent = '手机';
   button.title = '打开/关闭手机消息';
   button.setAttribute('aria-label', '打开或关闭手机消息面板');
-  button.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    togglePanel();
-  });
+  bindSafeTap(button, () => togglePanel());
 
   host.appendChild(button);
   updateQuickReplyButtonState();
@@ -923,6 +1010,44 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
   });
 }
 
+function bindSafeTap(el: HTMLElement, action: () => void): void {
+  let touchMoved = false;
+  let startX = 0;
+  let startY = 0;
+  let lastTouchAt = 0;
+
+  el.addEventListener('touchstart', (event) => {
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    touchMoved = false;
+    startX = touch.clientX;
+    startY = touch.clientY;
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (event) => {
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    if (Math.abs(touch.clientX - startX) + Math.abs(touch.clientY - startY) > 8) {
+      touchMoved = true;
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', (event) => {
+    if (touchMoved) return;
+    event.preventDefault();
+    event.stopPropagation();
+    lastTouchAt = Date.now();
+    action();
+  }, { passive: false });
+
+  el.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (Date.now() - lastTouchAt < 450) return;
+    action();
+  });
+}
+
 function bindEvents(): void {
   // FAB click - open panel
   const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
@@ -931,6 +1056,7 @@ function bindEvents(): void {
 
   if (fab) {
     setupDraggable(fab, fab, 'fab');
+    bindSafeTap(fab, () => togglePanel(true));
   }
 
   if (panel && statusbar) {
@@ -1117,6 +1243,7 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
 
 
 
