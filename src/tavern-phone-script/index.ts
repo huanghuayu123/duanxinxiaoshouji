@@ -975,9 +975,10 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
   let moved = false;
 
   handle.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 && event.pointerType !== 'touch') return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, input, textarea, select, a')) return;
+    event.stopPropagation();
 
     const rect = el.getBoundingClientRect();
     const startX = event.clientX;
@@ -990,6 +991,8 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
     handle.setPointerCapture?.(event.pointerId);
 
     const onMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      moveEvent.stopPropagation();
       const dx = moveEvent.clientX - startX;
       const dy = moveEvent.clientY - startY;
       if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
@@ -997,6 +1000,7 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
     };
 
     const onUp = (upEvent: PointerEvent) => {
+      upEvent.stopPropagation();
       doc.removeEventListener('pointermove', onMove);
       doc.removeEventListener('pointerup', onUp);
       doc.removeEventListener('pointercancel', onUp);
@@ -1010,10 +1014,10 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
       }
     };
 
-    doc.addEventListener('pointermove', onMove);
-    doc.addEventListener('pointerup', onUp);
-    doc.addEventListener('pointercancel', onUp);
-  });
+    doc.addEventListener('pointermove', onMove, { capture: true });
+    doc.addEventListener('pointerup', onUp, { capture: true });
+    doc.addEventListener('pointercancel', onUp, { capture: true });
+  }, { capture: true });
 }
 
 function bindTouchFallback(el: HTMLElement, action: () => void): void {
@@ -1049,6 +1053,29 @@ function wasRecentTouchTap(el: HTMLElement): boolean {
   return Number.isFinite(last) && Date.now() - last < 450;
 }
 
+function bindFabCaptureGuard(fab: HTMLElement): void {
+  const doc = getUiDocument();
+  const root = doc.getElementById('pa-script-root');
+  if (root?.dataset.paCaptureGuard === '1') return;
+  if (root) root.dataset.paCaptureGuard = '1';
+
+  const openFromFab = (event: Event): void => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('#pa-fab')) return;
+    event.stopPropagation();
+    togglePanel(true);
+  };
+
+  doc.addEventListener('click', openFromFab, { capture: true });
+  doc.addEventListener('touchend', openFromFab, { capture: true, passive: true });
+
+  requestAnimationFrame(() => {
+    const rect = fab.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    placeElement(fab, rect.left, rect.top);
+  });
+}
+
 function bindEvents(): void {
   // FAB click - open panel
   const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
@@ -1059,6 +1086,7 @@ function bindEvents(): void {
     setupDraggable(fab, fab, 'fab');
     fab.addEventListener('click', () => togglePanel(true));
     bindTouchFallback(fab, () => togglePanel(true));
+    bindFabCaptureGuard(fab);
   }
 
   if (panel && statusbar) {

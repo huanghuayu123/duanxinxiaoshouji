@@ -29,7 +29,7 @@
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 2147483646;
+  z-index: 2147483647;
   width: 56px;
   height: 56px;
   border-radius: 16px;
@@ -67,7 +67,7 @@
   position: fixed;
   bottom: 96px;
   right: 24px;
-  z-index: 2147483645;
+  z-index: 2147483646;
   width: 340px;
   height: 520px;
   background: var(--phone-bg);
@@ -88,7 +88,7 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.pa-panel--hidden { display: none; }
+.pa-panel--hidden { display: none !important; }
 
 /* Status Bar */
 .pa-statusbar {
@@ -414,4 +414,5 @@
     padding: 9px 10px;
   }
 }
+
 
