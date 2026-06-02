@@ -1,0 +1,14 @@
+{
+  "appId": "com.localphone.app",
+  "appName": "小手机本地版",
+  "webDir": "dist/local-phone",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

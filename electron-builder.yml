@@ -1,0 +1,17 @@
+appId: com.localphone.desktop
+productName: 小手机本地版
+directories:
+  output: release
+files:
+  - desktop/**/*
+  - scripts/local-phone-server.mjs
+  - dist/local-phone/**/*
+  - package.json
+win:
+  target:
+    - nsis
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
