@@ -728,6 +728,14 @@ function createUI(parentId: string): void {
   const doc = getUiDocument();
   const container = doc.getElementById(parentId);
   if (!container) return;
+  Object.assign(container.style, {
+    position: 'fixed',
+    inset: '0',
+    zIndex: '2147483647',
+    width: '100vw',
+    height: '100dvh',
+    pointerEvents: 'none',
+  });
 
   // FAB
   const fab = doc.createElement('div');
@@ -738,6 +746,13 @@ function createUI(parentId: string): void {
     <line x1="12" y1="18" x2="12" y2="18" stroke-width="3"/>
   </svg>`;
   fab.title = '打开手机面板';
+  fab.setAttribute('role', 'button');
+  fab.setAttribute('tabindex', '0');
+  fab.setAttribute('aria-label', '打开手机面板');
+  Object.assign(fab.style, {
+    pointerEvents: 'auto',
+    zIndex: '2147483647',
+  });
   container.appendChild(fab);
   restorePosition('fab', fab);
 
@@ -745,6 +760,10 @@ function createUI(parentId: string): void {
   const panel = doc.createElement('div');
   panel.id = 'pa-panel';
   panel.className = 'pa-panel pa-panel--hidden';
+  Object.assign(panel.style, {
+    pointerEvents: 'auto',
+    zIndex: '2147483646',
+  });
 
   panel.innerHTML = `
     <div class="pa-statusbar">
@@ -1020,6 +1039,74 @@ function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string
   }, { capture: true });
 }
 
+function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string): void {
+  const doc = getUiDocument();
+  let startX = 0;
+  let startY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+  let moved = false;
+  let dragging = false;
+
+  const readPoint = (event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
+    if ('touches' in event) {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      return touch ? { x: touch.clientX, y: touch.clientY } : null;
+    }
+    return { x: event.clientX, y: event.clientY };
+  };
+
+  const start = (event: MouseEvent | TouchEvent): void => {
+    if ('button' in event && event.button !== 0) return;
+    const target = event.target as HTMLElement | null;
+    if (el.id !== 'pa-fab' && target?.closest('button, input, textarea, select, a')) return;
+    const point = readPoint(event);
+    if (!point) return;
+
+    const rect = el.getBoundingClientRect();
+    startX = point.x;
+    startY = point.y;
+    startLeft = rect.left;
+    startTop = rect.top;
+    moved = false;
+    dragging = true;
+    el.classList.add('pa-dragging');
+    event.stopPropagation();
+  };
+
+  const move = (event: MouseEvent | TouchEvent): void => {
+    if (!dragging) return;
+    const point = readPoint(event);
+    if (!point) return;
+    const dx = point.x - startX;
+    const dy = point.y - startY;
+    if (Math.abs(dx) + Math.abs(dy) > 5) moved = true;
+    placeElement(el, startLeft + dx, startTop + dy);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const end = (event: MouseEvent | TouchEvent): void => {
+    if (!dragging) return;
+    dragging = false;
+    el.classList.remove('pa-dragging');
+    if (moved) {
+      savePosition(storageKey, el);
+    } else if (el.id === 'pa-fab') {
+      togglePanel(true);
+    }
+    event.stopPropagation();
+  };
+
+  handle.addEventListener('mousedown', start, { capture: true });
+  handle.addEventListener('touchstart', start, { capture: true, passive: false });
+  doc.addEventListener('mousemove', move, { capture: true });
+  doc.addEventListener('touchmove', move, { capture: true, passive: false });
+  doc.addEventListener('mouseup', end, { capture: true });
+  doc.addEventListener('touchend', end, { capture: true });
+  doc.addEventListener('touchcancel', end, { capture: true });
+}
+
 function bindTouchFallback(el: HTMLElement, action: () => void): void {
   let touchMoved = false;
   let startX = 0;
@@ -1076,6 +1163,21 @@ function bindFabCaptureGuard(fab: HTMLElement): void {
   });
 }
 
+function ensureFabVisible(): void {
+  const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
+  if (!fab) return;
+  fab.classList.remove('pa-fab--hidden');
+  fab.style.display = 'flex';
+  fab.style.opacity = '1';
+  fab.style.pointerEvents = 'auto';
+  const rect = fab.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    fab.style.width = '56px';
+    fab.style.height = '56px';
+  }
+  placeElement(fab, rect.left || 24, rect.top || 24);
+}
+
 function bindEvents(): void {
   // FAB click - open panel
   const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
@@ -1084,13 +1186,22 @@ function bindEvents(): void {
 
   if (fab) {
     setupDraggable(fab, fab, 'fab');
+    setupBasicDraggable(fab, fab, 'fab');
     fab.addEventListener('click', () => togglePanel(true));
+    fab.onclick = () => togglePanel(true);
+    fab.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        togglePanel(true);
+      }
+    });
     bindTouchFallback(fab, () => togglePanel(true));
     bindFabCaptureGuard(fab);
   }
 
   if (panel && statusbar) {
     setupDraggable(panel, statusbar, 'panel');
+    setupBasicDraggable(panel, statusbar, 'panel');
   }
 
   // Close panel
@@ -1199,6 +1310,8 @@ function bindEvents(): void {
     }
   });
   observer.observe(getUiDocument().body, { attributeFilter: ['class'], subtree: true });
+  setTimeout(ensureFabVisible, 300);
+  setTimeout(ensureFabVisible, 1200);
 }
 
 function setupToggleClick(id: string, onChange: (on: boolean) => void): void {

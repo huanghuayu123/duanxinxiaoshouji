@@ -24,6 +24,19 @@
   color: var(--phone-text);
   -webkit-font-smoothing: antialiased;
 }
+#pa-script-root {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  pointer-events: none !important;
+}
+
+#pa-script-root .pa-fab,
+#pa-script-root .pa-panel {
+  pointer-events: auto !important;
+}
 /* Floating FAB */
 .pa-fab {
   position: fixed;
@@ -67,7 +80,7 @@
   position: fixed;
   bottom: 96px;
   right: 24px;
-  z-index: 2147483646;
+  z-index: 2147483647;
   width: 340px;
   height: 520px;
   background: var(--phone-bg);
@@ -414,5 +427,6 @@
     padding: 9px 10px;
   }
 }
+
 
 
