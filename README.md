@@ -5,8 +5,14 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.7'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.9'
 ```
+
+## v1.0.9
+
+- 恢复小铅笔和垃圾桶图标按钮，并去掉白色按钮框。
+- 修复悬浮窗在手机端/远程操作时可能一次点击触发多次，导致看起来“点了没反应”的问题。
+- 优化手机酒馆适配：面板在窄屏下使用稳定宽度，输入区适配手机底部安全区，图标点击区域更大。
 
 ## v1.0.7
 
