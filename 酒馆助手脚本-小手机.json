@@ -3,8 +3,8 @@
   "enabled": true,
   "name": "小手机",
   "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.9'\n",
-  "info": "小手机短信悬浮窗 v1.0.9。恢复小铅笔和垃圾桶图标并去掉白色按钮框；修复手机端/远程操作点击重复触发导致点不开的问题；优化手机酒馆窄屏适配。",
+  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.10'\n",
+  "info": "小手机短信悬浮窗 v1.0.10。修复按钮亮起但面板不显示的问题；打开时会强制把面板拉回当前屏幕可见区域；保留手机端/远程操作适配和图标按钮。",
   "button": {
     "enabled": true,
     "buttons": []

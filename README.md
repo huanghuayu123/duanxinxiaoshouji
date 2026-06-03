@@ -5,8 +5,13 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.9'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.10'
 ```
+
+## v1.0.10
+
+- 修复按钮已经亮起但手机面板没有出现在屏幕里的问题。
+- 打开面板时会强制显示，并把异常位置或屏幕外位置拉回当前可见区域。
 
 ## v1.0.9
 

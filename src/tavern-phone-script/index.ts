@@ -871,25 +871,69 @@ function createUI(parentId: string): void {
 // ────────────────────────────── UI Logic ──────────────────────────
 
 function togglePanel(show?: boolean): void {
-  const panel = getUiDocument().getElementById('pa-panel');
+  const panel = getUiDocument().getElementById('pa-panel') as HTMLElement | null;
   const fab = getUiDocument().getElementById('pa-fab');
-  if (!panel || !fab) return;
+  if (!panel) return;
 
   panelVisible = show !== undefined ? show : !panelVisible;
 
   panel.classList.toggle('pa-panel--hidden', !panelVisible);
-  fab.classList.remove('pa-fab--hidden');
+  fab?.classList.remove('pa-fab--hidden');
   updateQuickReplyButtonState();
 
   if (panelVisible) {
-    const panelEl = panel as HTMLElement;
-    const rect = panelEl.getBoundingClientRect();
-    placeElement(panelEl, rect.left, rect.top);
+    revealPanel(panel);
     renderMessages();
     // Scroll to bottom
     const msgsEl = getUiDocument().getElementById('pa-messages');
     if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
   }
+}
+
+function revealPanel(panel: HTMLElement): void {
+  panel.classList.remove('pa-panel--hidden');
+  panel.style.display = 'flex';
+  panel.style.visibility = 'visible';
+  panel.style.opacity = '1';
+  panel.style.pointerEvents = 'auto';
+
+  requestAnimationFrame(() => {
+    const doc = getUiDocument();
+    const view = getViewportSize(doc);
+    const rect = panel.getBoundingClientRect();
+    const isMobile = view.width <= 480;
+    const invalidRect = rect.width < 80 || rect.height < 120;
+
+    if (isMobile) {
+      panel.style.width = `${Math.max(280, view.width - 16)}px`;
+      panel.style.height = `${Math.max(320, view.height - 16)}px`;
+      placeElement(panel, 8, 8);
+      savePosition('panel', panel);
+      return;
+    }
+
+    if (invalidRect) {
+      panel.style.width = '340px';
+      panel.style.height = '520px';
+    }
+
+    const nextRect = panel.getBoundingClientRect();
+    const offscreen =
+      nextRect.right < 24 ||
+      nextRect.bottom < 24 ||
+      nextRect.left > view.width - 24 ||
+      nextRect.top > view.height - 24;
+
+    if (offscreen || invalidRect) {
+      const left = Math.max(8, view.width - nextRect.width - 24);
+      const top = Math.max(8, view.height - nextRect.height - 96);
+      placeElement(panel, left, top);
+      savePosition('panel', panel);
+      return;
+    }
+
+    placeElement(panel, nextRect.left, nextRect.top);
+  });
 }
 
 function renderMessages(): void {
