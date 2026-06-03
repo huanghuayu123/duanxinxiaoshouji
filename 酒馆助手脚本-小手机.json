@@ -3,8 +3,8 @@
   "enabled": true,
   "name": "小手机",
   "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.8'\n",
-  "info": "小手机短信悬浮窗 v1.0.8。编辑和删除改为小铅笔、垃圾桶图标，去掉白色按钮框；保留读取过去聊天记录、悬浮窗开关、拖动和发送包裹 <短信> 功能。",
+  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.7'\n",
+  "info": "小手机短信悬浮窗 v1.0.7。新增读取过去聊天记录，可从当前酒馆聊天中读取已有 <短信>...</短信> 内容；保留悬浮窗开关、拖动、编辑、删除和发送包裹 <短信> 功能。",
   "button": {
     "enabled": true,
     "buttons": []

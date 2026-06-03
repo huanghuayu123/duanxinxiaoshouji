@@ -943,14 +943,7 @@ function renderMessages(): void {
     const editBtn = doc.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'pa-msg__action';
-    editBtn.title = '编辑';
-    editBtn.setAttribute('aria-label', '编辑消息');
-    editBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-      </svg>
-    `;
+    editBtn.textContent = '编辑';
     editBtn.addEventListener('click', (event) => {
       event.stopPropagation();
       editMessage(msg.id);
@@ -959,17 +952,7 @@ function renderMessages(): void {
     const deleteBtn = doc.createElement('button');
     deleteBtn.type = 'button';
     deleteBtn.className = 'pa-msg__action pa-msg__action--danger';
-    deleteBtn.title = '删除';
-    deleteBtn.setAttribute('aria-label', '删除消息');
-    deleteBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 6h18" />
-        <path d="M8 6V4h8v2" />
-        <path d="M19 6l-1 18H6L5 6" />
-        <path d="M10 11v6" />
-        <path d="M14 11v6" />
-      </svg>
-    `;
+    deleteBtn.textContent = '删除';
     deleteBtn.addEventListener('click', (event) => {
       event.stopPropagation();
       deleteMessage(msg.id);

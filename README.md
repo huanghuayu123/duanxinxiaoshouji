@@ -5,13 +5,8 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.8'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.7'
 ```
-
-## v1.0.8
-
-- 将消息旁的“编辑 / 删除”文字按钮改为小铅笔和垃圾桶图标。
-- 去掉图标按钮的白色框，默认透明，仅悬停或按下时轻微变色。
 
 ## v1.0.7
 
