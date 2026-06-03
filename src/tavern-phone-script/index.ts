@@ -745,6 +745,9 @@ function createUI(parentId: string): void {
   const doc = getUiDocument();
   const container = doc.getElementById(parentId);
   if (!container) return;
+  doc.getElementById('pa-fab')?.remove();
+  doc.getElementById('pa-panel')?.remove();
+
   setImportantStyle(container, 'position', 'fixed');
   setImportantStyle(container, 'inset', '0');
   setImportantStyle(container, 'z-index', '2147483647');
@@ -766,7 +769,7 @@ function createUI(parentId: string): void {
   fab.setAttribute('aria-label', '打开手机面板');
   setImportantStyle(fab, 'pointer-events', 'auto');
   setImportantStyle(fab, 'z-index', '2147483647');
-  container.appendChild(fab);
+  doc.body.appendChild(fab);
   restorePosition('fab', fab);
 
   // Panel
@@ -862,7 +865,7 @@ function createUI(parentId: string): void {
     </div>
   `;
 
-  container.appendChild(panel);
+  doc.body.appendChild(panel);
   restorePosition('panel', panel);
 }
 

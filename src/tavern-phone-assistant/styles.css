@@ -1,5 +1,7 @@
 ﻿#pa-script-root,
-#app {
+#app,
+.pa-fab,
+.pa-panel {
   --phone-bg: #1c1c1e;
   --phone-surface: #2c2c2e;
   --phone-border: rgba(255, 255, 255, 0.1);
@@ -33,8 +35,8 @@
   pointer-events: none !important;
 }
 
-#pa-script-root .pa-fab,
-#pa-script-root .pa-panel {
+.pa-fab,
+.pa-panel {
   pointer-events: auto !important;
 }
 

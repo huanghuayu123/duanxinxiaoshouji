@@ -5,8 +5,13 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.11'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.12'
 ```
+
+## v1.0.12
+
+- 将悬浮按钮和小手机面板直接挂到酒馆页面 body 顶层，不再依赖外层 root 容器。
+- 样式变量直接绑定到按钮和面板自身，避免移动端 root 挂载失效导致面板不可见。
 
 ## v1.0.11
 

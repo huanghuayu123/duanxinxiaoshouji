@@ -3,8 +3,8 @@
   "enabled": true,
   "name": "小手机",
   "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.11'\n",
-  "info": "小手机短信悬浮窗 v1.0.11。面板和外层容器使用最高优先级显示样式并提升层级；打开后会再次检查可见状态，仍不可见则强制重设尺寸和位置。",
+  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.12'\n",
+  "info": "小手机短信悬浮窗 v1.0.12。悬浮按钮和面板直接挂到酒馆页面 body 顶层，样式变量绑定到自身，避免手机端 root 挂载失效导致面板不可见。",
   "button": {
     "enabled": true,
     "buttons": []
