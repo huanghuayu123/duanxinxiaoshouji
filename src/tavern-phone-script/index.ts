@@ -1,1494 +1,678 @@
-﻿import phoneCss from '../tavern-phone-assistant/styles.css?raw';
+import phoneCss from '../tavern-phone-assistant/styles.css?raw';
 
-// ────────────────────────────── Types ──────────────────────────────
+type PhoneRole = 'user' | 'char';
 
 interface PhoneMessage {
   id: string;
-  role: 'user' | 'char' | 'system';
-  content: string;
-  ts: number;
+  role: PhoneRole;
+  text: string;
+  time: number;
+  source?: string;
 }
 
-interface PhoneSettings {
-  tavernToPhone: boolean;
-  phoneToTavern: boolean;
-  autoTrigger: boolean;
-  /** 联系人名称（对应酒馆角色名） */
-  contactName: string;
-  /** AI 正文里包裹手机消息的标签名 */
-  outTag: string;
+interface PhoneState {
+  messages: PhoneMessage[];
+  seen: string[];
+  positions: Record<string, { left: number; top: number }>;
 }
 
-// ────────────────────────────── Constants ──────────────────────────
+const ROOT_ID = 'xiaoxi-phone-root';
+const STYLE_ID = 'xiaoxi-phone-style';
+const STATE_KEY = 'xiaoxi_phone_state_v2';
+const VERSION = 'v1.0.14';
+const SMS_TAG = '短信';
+const MAX_MESSAGES = 200;
+const MAX_SEEN = 800;
 
-const MSG_KEY = 'pa_phone_messages';
-const SET_KEY = 'pa_phone_settings';
-const SEEN_KEY = 'pa_phone_seen_segments';
-const POS_KEY = 'pa_phone_positions';
-const MAX_MSGS = 100;
-const DEFAULT_SMS_TAG = '短信';
+let hostDocument: Document = document;
+let panelOpen = false;
+let cleanupFns: Array<() => void> = [];
 
-const DEFAULT_SETTINGS: PhoneSettings = {
-  tavernToPhone: true,
-  phoneToTavern: true,
-  autoTrigger: true,
-  contactName: '',
-  outTag: DEFAULT_SMS_TAG,
-};
-
-// ────────────────────────────── Utilities ──────────────────────────
-
-function storageGet<T>(key: string, fallback: T): T {
+function getParentWindow(): Window {
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    return window.parent && window.parent !== window ? window.parent : window;
   } catch {
-    return fallback;
+    return window;
   }
-}
-
-function storageSet(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // quota exceeded — silently ignore
-  }
-}
-
-function uid(): string {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function timeStr(ts: number): string {
-  const d = new Date(ts);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function simpleHash(s: string): string {
-  let hash = 0;
-  for (let i = 0; i < s.length; i += 1) {
-    hash = (hash * 31 + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
-}
-
-function clamp(n: number, min: number, max: number): number {
-  return Math.min(Math.max(n, min), max);
-}
-
-function getViewportSize(doc: Document): { width: number; height: number } {
-  const win = doc.defaultView ?? window;
-  return {
-    width: win.visualViewport?.width ?? win.innerWidth ?? doc.documentElement.clientWidth,
-    height: win.visualViewport?.height ?? win.innerHeight ?? doc.documentElement.clientHeight,
-  };
-}
-
-function getPositions(): Record<string, { left: number; top: number }> {
-  return storageGet<Record<string, { left: number; top: number }>>(POS_KEY, {});
-}
-
-function savePosition(key: string, el: HTMLElement): void {
-  const rect = el.getBoundingClientRect();
-  const positions = getPositions();
-  positions[key] = { left: Math.round(rect.left), top: Math.round(rect.top) };
-  storageSet(POS_KEY, positions);
-}
-
-function placeElement(el: HTMLElement, left: number, top: number): void {
-  const doc = getUiDocument();
-  const view = getViewportSize(doc);
-  const rect = el.getBoundingClientRect();
-  const safeLeft = clamp(left, 8, Math.max(8, view.width - rect.width - 8));
-  const safeTop = clamp(top, 8, Math.max(8, view.height - rect.height - 8));
-
-  setImportantStyle(el, 'left', `${safeLeft}px`);
-  setImportantStyle(el, 'top', `${safeTop}px`);
-  setImportantStyle(el, 'right', 'auto');
-  setImportantStyle(el, 'bottom', 'auto');
-}
-
-function setImportantStyle(el: HTMLElement, name: string, value: string): void {
-  el.style.setProperty(name, value, 'important');
-}
-
-function restorePosition(key: string, el: HTMLElement): void {
-  const pos = getPositions()[key];
-  if (!pos) return;
-  requestAnimationFrame(() => placeElement(el, pos.left, pos.top));
-}
-
-/** Access the tavern parent window safely */
-function getParent(): Window | null {
-  try {
-    return window.parent !== window ? window.parent : window;
-  } catch {
-    return null;
-  }
-}
-
-/** Get SillyTavern global from parent */
-function getSillyTavern(): Record<string, unknown> | null {
-  try {
-    const p = getParent();
-    if (p && 'SillyTavern' in p) {
-      return (p as unknown as Record<string, unknown>).SillyTavern as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/** Access parent event system */
-function getEventSource(): Record<string, unknown> | null {
-  try {
-    const p = getParent();
-    if (p && 'eventSource' in p) {
-      return (p as unknown as Record<string, unknown>).eventSource as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/** Access parent toastr */
-function getToastr(): Record<string, unknown> | null {
-  try {
-    const p = getParent();
-    if (p && 'toastr' in p) {
-      return (p as unknown as Record<string, unknown>).toastr as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function parentToast(msg: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
-  const t = getToastr();
-  if (t && typeof t[type] === 'function') {
-    (t[type] as (msg: string) => void)(msg);
-  }
-}
-
-// ────────────────────────────── Settings ───────────────────────────
-
-function loadSettings(): PhoneSettings {
-  const saved = storageGet<Partial<PhoneSettings>>(SET_KEY, {});
-  return { ...DEFAULT_SETTINGS, ...saved };
-}
-
-function saveSettings(s: PhoneSettings): void {
-  storageSet(SET_KEY, s);
-}
-
-// ────────────────────────────── Message Store ──────────────────────
-
-function loadMessages(): PhoneMessage[] {
-  return storageGet<PhoneMessage[]>(MSG_KEY, []);
-}
-
-function saveMessages(msgs: PhoneMessage[]): void {
-  while (msgs.length > MAX_MSGS) {
-    msgs.shift();
-  }
-  storageSet(MSG_KEY, msgs);
-}
-
-function addMessage(role: PhoneMessage['role'], content: string): PhoneMessage {
-  const msgs = loadMessages();
-  const msg: PhoneMessage = { id: uid(), role, content, ts: Date.now() };
-  msgs.push(msg);
-  saveMessages(msgs);
-  return msg;
-}
-
-function clearMessages(): void {
-  localStorage.removeItem(MSG_KEY);
-  localStorage.removeItem(SEEN_KEY);
-}
-
-function loadSeenSegments(): Set<string> {
-  return new Set(storageGet<string[]>(SEEN_KEY, []));
-}
-
-function saveSeenSegments(seen: Set<string>): void {
-  const list = Array.from(seen).slice(-500);
-  storageSet(SEEN_KEY, list);
-}
-
-// ────────────────────────────── SillyTavern Integration ────────────
-
-function getCharName(): string {
-  const st = getSillyTavern();
-  if (st && typeof st.name2 === 'string' && st.name2) {
-    return st.name2;
-  }
-  // fallback to settings
-  const settings = loadSettings();
-  return settings.contactName || '角色';
-}
-
-function getUserName(): string {
-  const st = getSillyTavern();
-  if (st && typeof st.name1 === 'string' && st.name1) {
-    return st.name1;
-  }
-  return '用户';
-}
-
-/** Extract content wrapped in <tag>...</tag> */
-function extractTagContent(text: string, tag: string): string[] {
-  const results: string[] = [];
-  const safeTag = escapeRegExp(tag.trim() || DEFAULT_SMS_TAG);
-  let match: RegExpExecArray | null;
-  const re = new RegExp(`<${safeTag}>([\\s\\S]*?)<\\/${safeTag}>`, 'gi');
-  while ((match = re.exec(text)) !== null) {
-    if (match[1].trim()) {
-      results.push(match[1].trim());
-    }
-  }
-  return results;
-}
-
-/** Send text to SillyTavern chat input */
-function findTavernInput(doc: Document): HTMLElement | null {
-  const selectors = [
-    '#send_textarea',
-    'textarea#send_textarea',
-    'textarea.send_text',
-    '#send_form textarea',
-    '.send_form textarea',
-    '#send_form [contenteditable="true"]',
-    '[contenteditable="true"][role="textbox"]',
-  ];
-
-  for (const selector of selectors) {
-    const el = doc.querySelector<HTMLElement>(selector);
-    if (el && !el.closest('#pa-script-root')) return el;
-  }
-
-  return null;
-}
-
-function dispatchInputEvent(el: HTMLElement, win: Window, text: string): void {
-  try {
-    el.dispatchEvent(new win.InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
-  } catch {
-    el.dispatchEvent(new win.Event('input', { bubbles: true }));
-  }
-  el.dispatchEvent(new win.Event('change', { bubbles: true }));
-  el.dispatchEvent(new win.KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
-}
-
-function setTavernInputText(el: HTMLElement, text: string, win: Window): void {
-  if (el instanceof win.HTMLTextAreaElement || el instanceof win.HTMLInputElement) {
-    const valueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-    if (valueSetter) {
-      valueSetter.call(el, text);
-    } else {
-      el.value = text;
-    }
-  } else if (el.isContentEditable) {
-    el.textContent = text;
-  }
-
-  dispatchInputEvent(el, win, text);
-}
-
-function getTavernInputText(el: HTMLElement, win: Window): string {
-  if (el instanceof win.HTMLTextAreaElement || el instanceof win.HTMLInputElement) return el.value;
-  return el.textContent ?? '';
-}
-
-function findTavernSendButton(doc: Document): HTMLElement | null {
-  const selectors = [
-    '#send_but',
-    '#send_form #send_but',
-    '.send_button',
-    '.mes_btn_send',
-    'button[title="Send"]',
-    'button[aria-label="Send"]',
-    '#send_form button[type="button"]',
-    '#send_form button',
-  ];
-
-  for (const selector of selectors) {
-    const el = doc.querySelector<HTMLElement>(selector);
-    if (el && !el.closest('#pa-script-root')) return el;
-  }
-
-  return null;
-}
-
-function activateTavernSendButton(sendBtn: HTMLElement, win: Window): void {
-  sendBtn.dispatchEvent(new win.MouseEvent('pointerdown', { bubbles: true, cancelable: true, view: win }));
-  sendBtn.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, view: win }));
-  sendBtn.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true, cancelable: true, view: win }));
-  sendBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win }));
-  sendBtn.click?.();
-}
-
-/** Send text to SillyTavern chat input */
-function sendToTavernInput(text: string): boolean {
-  try {
-    const parent = getParent();
-    if (!parent) {
-      parentToast('Cannot access tavern page', 'error');
-      return false;
-    }
-
-    const doc = parent.document;
-    const win = doc.defaultView ?? parent;
-    const input = findTavernInput(doc);
-    if (!input) {
-      parentToast('Cannot find tavern input box', 'warning');
-      return false;
-    }
-
-    setTavernInputText(input, text, win);
-
-    const jq = (parent as unknown as { $?: unknown }).$;
-    if (typeof jq === 'function') {
-      const $ = jq as (el: Element) => { val?: (value: string) => unknown; trigger: (event: string) => unknown };
-      const wrapped = $(input);
-      wrapped.val?.(text);
-      wrapped.trigger('input');
-      wrapped.trigger('change');
-      wrapped.trigger('keyup');
-    }
-
-    input.focus();
-
-    const sendBtn = findTavernSendButton(doc);
-    if (!sendBtn) {
-      parentToast('Message filled into tavern input, send button not found', 'info');
-      return false;
-    }
-
-    if (typeof jq === 'function') {
-      const wrappedSend = (jq as (el: Element) => { trigger: (event: string) => unknown })(sendBtn);
-      wrappedSend.trigger('mousedown');
-      wrappedSend.trigger('mouseup');
-      wrappedSend.trigger('click');
-    } else {
-      activateTavernSendButton(sendBtn, win);
-    }
-    activateTavernSendButton(sendBtn, win);
-
-    setTimeout(() => {
-      if (getTavernInputText(input, win).trim() === text.trim()) {
-        input.dispatchEvent(new win.KeyboardEvent('keydown', {
-          bubbles: true,
-          cancelable: true,
-          key: 'Enter',
-          code: 'Enter',
-        }));
-        sendToTavernAPI(text);
-      }
-    }, 80);
-
-    parentToast('Sent through tavern input', 'success');
-    return true;
-  } catch (err) {
-    parentToast(`Send failed: ${String(err)}`, 'error');
-    return false;
-  }
-}
-/** Directly call tavern's sendMessage API if available */
-function sendToTavernAPI(text: string): boolean {
-  try {
-    const parent = getParent();
-    if (!parent) return false;
-
-    // Try parent scope's sendMessage function
-    const win = parent as unknown as Record<string, unknown>;
-    if (typeof win.sendMessage === 'function') {
-      (win.sendMessage as (msg: string) => unknown)(text);
-      return true;
-    }
-    // Try via SillyTavern context
-    const st = win.SillyTavern as Record<string, unknown> | undefined;
-    if (st && typeof st.getContext === 'function') {
-      const ctx = (st.getContext as () => Record<string, unknown>)();
-      const send = ctx.sendMessage as ((msg: string) => unknown) | undefined;
-      if (typeof send === 'function') {
-        send(text);
-        return true;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/** Send phone message to tavern */
-function phoneToTavernBridge(content: string): void {
-  const settings = loadSettings();
-  if (!settings.phoneToTavern) return;
-
-  const tag = settings.outTag.trim() || DEFAULT_SMS_TAG;
-  const tavernContent = `<${tag}>${content}</${tag}>`;
-  const sent = sendToTavernInput(tavernContent);
-
-  if (!sent && settings.autoTrigger) {
-    try {
-      const parent = getParent();
-      if (parent) {
-        const win = parent as unknown as Record<string, unknown>;
-        // Try to trigger generation
-        if (typeof win.generateMessage === 'function') {
-          setTimeout(() => (win.generateMessage as () => void)(), 300);
-        } else if (typeof win.sendMessageAndGenerate === 'function') {
-          setTimeout(() => (win.sendMessageAndGenerate as () => void)(), 300);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-}
-
-// ────────────────────────────── Event Listeners on Tavern ──────────
-
-let eventCleanups: Array<() => void> = [];
-let quickReplyTimer: number | undefined;
-let uiDocument: Document = document;
-
-function getUiDocument(): Document {
-  return uiDocument;
 }
 
 function getHostDocument(): Document {
   try {
-    return getParent()?.document ?? document;
+    return getParentWindow().document ?? document;
   } catch {
     return document;
   }
 }
 
-function injectPhoneStyle(doc: Document): void {
-  if (doc.getElementById('pa-phone-style')) return;
-
-  const style = doc.createElement('style');
-  style.id = 'pa-phone-style';
-  style.textContent = phoneCss;
-  doc.head?.appendChild(style);
-}
-
-function setupTavernListeners(): void {
-  // Cleanup previous
-  eventCleanups.forEach(fn => fn());
-  eventCleanups = [];
-
-  const es = getEventSource();
-  if (!es || typeof es.on !== 'function') {
-    console.info('[PA] eventSource not available, retrying in 2s...');
-    setTimeout(setupTavernListeners, 2000);
-    return;
-  }
-
-  const evOn = es.on as (event: string, cb: (...args: unknown[]) => void) => unknown;
-
-  // Listen for new messages
-  const unsub1 = tryListenEvent(evOn, 'MESSAGE_RECEIVED', (_msgId?: unknown) => {
-    handleTavernMessages();
-  });
-  if (unsub1) eventCleanups.push(unsub1);
-
-  // Listen for generation complete
-  const unsub2 = tryListenEvent(evOn, 'GENERATION_AFTER_COMMANDS', (_msgId?: unknown) => {
-    handleTavernMessages();
-  });
-  if (unsub2) eventCleanups.push(unsub2);
-
-  // Listen for chat changes
-  const unsub3 = tryListenEvent(evOn, 'CHAT_CHANGED', () => {
-    handleTavernMessages();
-    console.info('[PA] chat changed');
-  });
-  if (unsub3) eventCleanups.push(unsub3);
-
-  console.info('[PA] tavern listeners established');
-}
-
-function tryListenEvent(
-  evOn: (event: string, cb: (...args: unknown[]) => void) => unknown,
-  event: string,
-  cb: (...args: unknown[]) => void,
-): (() => void) | null {
+function loadState(): PhoneState {
   try {
-    const result = evOn(event, cb);
-    // Some event systems return a stop/unsubscribe function
-    if (result && typeof (result as { stop?: () => void }).stop === 'function') {
-      return (result as { stop: () => void }).stop;
-    }
-    return () => {
-      try {
-        const es = getEventSource();
-        if (es && typeof es.removeListener === 'function') {
-          (es.removeListener as (e: string, c: (...args: unknown[]) => void) => void)(event, cb);
-        }
-        if (es && typeof es.off === 'function') {
-          (es.off as (e: string, c: (...args: unknown[]) => void) => void)(event, cb);
-        }
-      } catch {
-        // ignore during cleanup
-      }
+    const raw = getParentWindow().localStorage?.getItem(STATE_KEY) ?? localStorage.getItem(STATE_KEY);
+    if (!raw) return { messages: [], seen: [], positions: {} };
+    const parsed = JSON.parse(raw) as Partial<PhoneState>;
+    return {
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      seen: Array.isArray(parsed.seen) ? parsed.seen : [],
+      positions: parsed.positions && typeof parsed.positions === 'object' ? parsed.positions : {},
     };
   } catch {
-    return null;
+    return { messages: [], seen: [], positions: {} };
   }
 }
 
-function readTavernMessages(): Array<{ messageId: string; content: string }> {
+function saveState(state: PhoneState): void {
+  const next: PhoneState = {
+    messages: state.messages.slice(-MAX_MESSAGES),
+    seen: state.seen.slice(-MAX_SEEN),
+    positions: state.positions,
+  };
   try {
-    if (typeof getLastMessageId === 'function' && typeof getChatMessages === 'function') {
-      const lastId = getLastMessageId();
-      if (lastId >= 0) {
-        return getChatMessages(`0-${lastId}`, {
-          role: 'all',
-          hide_state: 'all',
-          include_swipes: false,
-        })
-          .filter((message) => typeof message.message === 'string' && message.message.trim())
-          .map((message) => ({
-            messageId: String(message.message_id),
-            content: message.message,
-          }));
-      }
-    }
-  } catch (err) {
-    console.warn('[PA] getChatMessages unavailable, falling back to SillyTavern.chat:', err);
+    const raw = JSON.stringify(next);
+    getParentWindow().localStorage?.setItem(STATE_KEY, raw);
+    localStorage.setItem(STATE_KEY, raw);
+  } catch {
+    // local storage may be unavailable in some embedded modes.
   }
-
-  const st = getSillyTavern();
-  const chat = (st as Record<string, unknown> | null)?.chat as
-    | Array<{ mes?: unknown; mesid?: unknown }>
-    | undefined;
-  if (!chat) return [];
-
-  return chat
-    .map((message, index) => ({
-      messageId: String(message.mesid ?? index),
-      content: typeof message.mes === 'string' ? message.mes : '',
-    }))
-    .filter((message) => message.content.trim());
 }
 
-function handleTavernMessages(): void {
-  const settings = loadSettings();
-  if (!settings.tavernToPhone) return;
-
-  syncTavernHistory(false);
+function uid(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function syncTavernHistory(forceToast = true): number {
-  const settings = loadSettings();
+function hashText(text: string): string {
+  let hash = 5381;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ text.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function formatTime(time: number): string {
+  const date = new Date(time);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function viewport(): { width: number; height: number } {
+  const win = hostDocument.defaultView ?? window;
+  return {
+    width: win.visualViewport?.width ?? win.innerWidth ?? hostDocument.documentElement.clientWidth ?? 360,
+    height: win.visualViewport?.height ?? win.innerHeight ?? hostDocument.documentElement.clientHeight ?? 640,
+  };
+}
+
+function setStyle(el: HTMLElement, name: string, value: string): void {
+  el.style.setProperty(name, value, 'important');
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function placeElement(el: HTMLElement, left: number, top: number): void {
+  const view = viewport();
+  const rect = el.getBoundingClientRect();
+  const safeLeft = clamp(left, 8, Math.max(8, view.width - rect.width - 8));
+  const safeTop = clamp(top, 8, Math.max(8, view.height - rect.height - 8));
+  setStyle(el, 'left', `${Math.round(safeLeft)}px`);
+  setStyle(el, 'top', `${Math.round(safeTop)}px`);
+  setStyle(el, 'right', 'auto');
+  setStyle(el, 'bottom', 'auto');
+}
+
+function rememberPosition(key: 'fab' | 'panel', el: HTMLElement): void {
+  const state = loadState();
+  const rect = el.getBoundingClientRect();
+  state.positions[key] = { left: Math.round(rect.left), top: Math.round(rect.top) };
+  saveState(state);
+}
+
+function restorePosition(key: 'fab' | 'panel', el: HTMLElement, fallback: () => { left: number; top: number }): void {
+  const position = loadState().positions[key] ?? fallback();
+  requestAnimationFrame(() => placeElement(el, position.left, position.top));
+}
+
+function toast(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
   try {
-    const seen = loadSeenSegments();
-    let added = 0;
-
-    for (const message of readTavernMessages()) {
-      const extracted = extractTagContent(message.content, settings.outTag);
-      extracted.forEach((text, index) => {
-        const signature = `${message.messageId}:${index}:${simpleHash(text)}`;
-        if (seen.has(signature)) return;
-        seen.add(signature);
-        addMessage('char', text);
-        added += 1;
-      });
-    }
-
-    if (added === 0) {
-      if (forceToast) parentToast('没有发现新的历史短信', 'info');
-      return 0;
-    }
-
-    saveSeenSegments(seen);
-    renderMessages();
-    if (forceToast) parentToast(`读取到 ${added} 条手机消息`, 'success');
-    return added;
-  } catch (err) {
-    console.warn('[PA] error processing tavern message:', err);
-    if (forceToast) parentToast('读取聊天记录失败，请看控制台', 'error');
-    return 0;
+    const win = getParentWindow() as unknown as { toastr?: Record<string, unknown> };
+    const fn = win.toastr?.[type];
+    if (typeof fn === 'function') (fn as (text: string) => void)(message);
+  } catch {
+    // Toasts are optional.
   }
 }
 
-function injectQuickReplyStyle(doc: Document): void {
-  if (doc.getElementById('pa-quick-reply-style')) return;
-  const style = doc.createElement('style');
-  style.id = 'pa-quick-reply-style';
-  style.textContent = `
-    .pa-qr-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 28px;
-      padding: 4px 10px;
-      margin: 2px;
-      border: 1px solid rgba(120, 160, 255, 0.55);
-      border-radius: 8px;
-      background: rgba(20, 28, 42, 0.78);
-      color: #eaf1ff;
-      font-size: 13px;
-      line-height: 1.2;
-      cursor: pointer;
-      user-select: none;
-      touch-action: manipulation;
-      vertical-align: middle;
-    }
-    .pa-qr-button:hover,
-    .pa-qr-button.pa-qr-button--active {
-      background: rgba(10, 132, 255, 0.92);
-      border-color: rgba(180, 215, 255, 0.9);
-      color: #fff;
-    }
-  `;
-  doc.head?.appendChild(style);
+function escapeTag(tag: string): string {
+  return tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function findQuickReplyHost(doc: Document): HTMLElement | null {
+function extractSms(text: string): string[] {
+  const matches: string[] = [];
+  const re = new RegExp(`<${escapeTag(SMS_TAG)}>([\\s\\S]*?)<\\/${escapeTag(SMS_TAG)}>`, 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const value = match[1].trim();
+    if (value) matches.push(value);
+  }
+  return matches;
+}
+
+function addPhoneMessage(role: PhoneRole, text: string, source?: string): void {
+  const clean = text.trim();
+  if (!clean) return;
+  const state = loadState();
+  state.messages.push({ id: uid(), role, text: clean, time: Date.now(), source });
+  saveState(state);
+  renderMessages();
+}
+
+function deletePhoneMessage(id: string): void {
+  const state = loadState();
+  state.messages = state.messages.filter(message => message.id !== id);
+  saveState(state);
+  renderMessages();
+}
+
+function editPhoneMessage(id: string): void {
+  const state = loadState();
+  const message = state.messages.find(item => item.id === id);
+  if (!message) return;
+  const next = getParentWindow().prompt?.('编辑短信', message.text) ?? prompt('编辑短信', message.text);
+  if (next === null) return;
+  const trimmed = next.trim();
+  if (!trimmed) return;
+  message.text = trimmed;
+  message.time = Date.now();
+  saveState(state);
+  renderMessages();
+}
+
+function clearPhoneMessages(): void {
+  const ok = getParentWindow().confirm?.('确定清空小手机里的所有短信？') ?? confirm('确定清空小手机里的所有短信？');
+  if (!ok) return;
+  const state = loadState();
+  state.messages = [];
+  state.seen = [];
+  saveState(state);
+  renderMessages();
+}
+
+function readChatMessages(): Array<{ id: string; text: string }> {
+  const win = getParentWindow() as unknown as Record<string, unknown>;
+
+  try {
+    const getLast =
+      typeof getLastMessageId === 'function'
+        ? getLastMessageId
+        : typeof win.getLastMessageId === 'function'
+          ? (win.getLastMessageId as () => number)
+          : null;
+    const getMessages =
+      typeof getChatMessages === 'function'
+        ? getChatMessages
+        : typeof win.getChatMessages === 'function'
+          ? (win.getChatMessages as typeof getChatMessages)
+          : null;
+
+    const last = getLast ? getLast() : -1;
+    if (last >= 0 && getMessages) {
+      return getMessages(`0-${last}`, { role: 'all', hide_state: 'all', include_swipes: false })
+        .map((message, index) => ({
+          id: String(message.message_id ?? index),
+          text: typeof message.message === 'string' ? message.message : '',
+        }))
+        .filter(message => message.text.trim());
+    }
+  } catch {
+    // Fall through to SillyTavern globals.
+  }
+
+  const st = win.SillyTavern as { chat?: Array<{ mes?: unknown; mesid?: unknown }> } | undefined;
+  if (Array.isArray(st?.chat)) {
+    return st.chat
+      .map((message, index) => ({
+        id: String(message.mesid ?? index),
+        text: typeof message.mes === 'string' ? message.mes : '',
+      }))
+      .filter(message => message.text.trim());
+  }
+
+  const context = typeof (win.SillyTavern as { getContext?: unknown } | undefined)?.getContext === 'function'
+    ? ((win.SillyTavern as { getContext: () => { chat?: Array<{ mes?: unknown; mesid?: unknown }> } }).getContext())
+    : null;
+  if (Array.isArray(context?.chat)) {
+    return context.chat
+      .map((message, index) => ({
+        id: String(message.mesid ?? index),
+        text: typeof message.mes === 'string' ? message.mes : '',
+      }))
+      .filter(message => message.text.trim());
+  }
+
+  return [];
+}
+
+function syncFromChat(showResult = false): number {
+  const state = loadState();
+  const seen = new Set(state.seen);
+  let added = 0;
+
+  for (const chatMessage of readChatMessages()) {
+    extractSms(chatMessage.text).forEach((text, index) => {
+      const signature = `${chatMessage.id}:${index}:${hashText(text)}`;
+      if (seen.has(signature)) return;
+      seen.add(signature);
+      state.messages.push({ id: uid(), role: 'char', text, time: Date.now(), source: signature });
+      added += 1;
+    });
+  }
+
+  state.seen = Array.from(seen).slice(-MAX_SEEN);
+  saveState(state);
+  renderMessages();
+
+  if (showResult) {
+    toast(added > 0 ? `读取到 ${added} 条短信` : '没有发现新的历史短信', added > 0 ? 'success' : 'info');
+  }
+  return added;
+}
+
+function findInput(): HTMLElement | null {
   const selectors = [
-    '#quickReplyBar',
-    '#quickReplyBarInner',
-    '#qr--bar',
-    '#qr--buttons',
-    '#qr_buttons',
-    '.quickReplyBar',
-    '.quick-reply-bar',
-    '.qr--buttons',
-    '.qr_buttons',
-    '.qr-button-container',
-    '#send_form',
+    '#send_textarea',
+    'textarea#send_textarea',
+    '#send_form textarea',
+    'textarea.send_text',
+    '#send_form [contenteditable="true"]',
+    '[contenteditable="true"][role="textbox"]',
   ];
-
   for (const selector of selectors) {
-    const el = doc.querySelector<HTMLElement>(selector);
-    if (el) return el;
+    const input = hostDocument.querySelector<HTMLElement>(selector);
+    if (input && !input.closest(`#${ROOT_ID}`)) return input;
   }
-
   return null;
 }
 
-function updateQuickReplyButtonState(): void {
-  const parent = getParent();
-  const doc = parent?.document;
-  const button = doc?.getElementById('pa-qr-phone-button');
-  button?.classList.toggle('pa-qr-button--active', panelVisible);
-  if (button) button.setAttribute('aria-pressed', String(panelVisible));
+function findSendButton(): HTMLElement | null {
+  const selectors = ['#send_but', '#send_form #send_but', '.send_button', 'button[aria-label="Send"]', '#send_form button'];
+  for (const selector of selectors) {
+    const button = hostDocument.querySelector<HTMLElement>(selector);
+    if (button && !button.closest(`#${ROOT_ID}`)) return button;
+  }
+  return null;
 }
 
-function ensureQuickReplyButton(): boolean {
-  const parent = getParent();
-  if (!parent) return false;
+function setInputValue(input: HTMLElement, value: string): void {
+  const win = hostDocument.defaultView ?? getParentWindow();
+  if (input instanceof win.HTMLTextAreaElement || input instanceof win.HTMLInputElement) {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+    if (setter) setter.call(input, value);
+    else input.value = value;
+  } else if (input.isContentEditable) {
+    input.textContent = value;
+  }
 
-  const doc = parent.document;
-  injectQuickReplyStyle(doc);
+  input.dispatchEvent(new win.Event('input', { bubbles: true }));
+  input.dispatchEvent(new win.Event('change', { bubbles: true }));
 
-  let button = doc.getElementById('pa-qr-phone-button') as HTMLButtonElement | null;
+  const jq = (getParentWindow() as unknown as { $?: unknown }).$;
+  if (typeof jq === 'function') {
+    const wrapped = (jq as (el: Element) => { val?: (value: string) => unknown; trigger: (event: string) => unknown })(input);
+    wrapped.val?.(value);
+    wrapped.trigger('input');
+    wrapped.trigger('change');
+  }
+}
+
+function clickSend(button: HTMLElement): void {
+  const win = hostDocument.defaultView ?? getParentWindow();
+  ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(type => {
+    button.dispatchEvent(new win.MouseEvent(type, { bubbles: true, cancelable: true, view: win }));
+  });
+  button.click?.();
+}
+
+function sendToTavern(text: string): boolean {
+  const wrapped = `<${SMS_TAG}>${text.trim()}</${SMS_TAG}>`;
+  const input = findInput();
+  if (!input) {
+    toast('没有找到酒馆输入框', 'warning');
+    return false;
+  }
+
+  setInputValue(input, wrapped);
+  input.focus();
+
+  const button = findSendButton();
   if (button) {
-    updateQuickReplyButtonState();
+    clickSend(button);
+    toast('短信已写回酒馆并发送', 'success');
     return true;
   }
 
-  const host = findQuickReplyHost(doc);
-  if (!host) return false;
-
-  button = doc.createElement('button');
-  button.id = 'pa-qr-phone-button';
-  button.type = 'button';
-  button.className = 'pa-qr-button';
-  button.textContent = '手机';
-  button.title = '打开/关闭手机消息';
-  button.setAttribute('aria-label', '打开或关闭手机消息面板');
-  button.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (wasRecentTouchTap(button)) return;
-    togglePanel();
-  });
-  bindTouchFallback(button, () => togglePanel());
-
-  host.appendChild(button);
-  updateQuickReplyButtonState();
+  toast('短信已写入酒馆输入框，请手动发送', 'info');
   return true;
 }
 
-function setupQuickReplyButton(): void {
-  if (ensureQuickReplyButton()) return;
-  quickReplyTimer = window.setInterval(() => {
-    if (ensureQuickReplyButton() && quickReplyTimer !== undefined) {
-      window.clearInterval(quickReplyTimer);
-      quickReplyTimer = undefined;
-    }
-  }, 1500);
+function byId<T extends HTMLElement>(id: string): T | null {
+  return hostDocument.getElementById(id) as T | null;
 }
 
-// ────────────────────────────── Phone UI ──────────────────────────
+function installStyle(): void {
+  const oldStyle = hostDocument.getElementById(STYLE_ID);
+  oldStyle?.remove();
+  const style = hostDocument.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = phoneCss;
+  hostDocument.head.appendChild(style);
+}
 
-// State
-let panelVisible = false;
-let settingsVisible = false;
+function createButton(label: string, className: string, title?: string): HTMLButtonElement {
+  const button = hostDocument.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  if (title) button.title = title;
+  return button;
+}
 
-function createUI(parentId: string): void {
-  const doc = getUiDocument();
-  const container = doc.getElementById(parentId);
-  if (!container) return;
-  doc.getElementById('pa-fab')?.remove();
-  doc.getElementById('pa-panel')?.remove();
+function buildUi(): void {
+  hostDocument.getElementById(ROOT_ID)?.remove();
+  installStyle();
 
-  setImportantStyle(container, 'position', 'fixed');
-  setImportantStyle(container, 'inset', '0');
-  setImportantStyle(container, 'z-index', '2147483647');
-  setImportantStyle(container, 'width', '100vw');
-  setImportantStyle(container, 'height', '100dvh');
-  setImportantStyle(container, 'pointer-events', 'none');
-
-  // FAB
-  const fab = doc.createElement('div');
-  fab.id = 'pa-fab';
-  fab.className = 'pa-fab';
-  fab.innerHTML = `<svg class="pa-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-    <line x1="12" y1="18" x2="12" y2="18" stroke-width="3"/>
-  </svg>`;
-  fab.title = '打开手机面板';
-  fab.setAttribute('role', 'button');
-  fab.setAttribute('tabindex', '0');
-  fab.setAttribute('aria-label', '打开手机面板');
-  setImportantStyle(fab, 'pointer-events', 'auto');
-  setImportantStyle(fab, 'z-index', '2147483647');
-  doc.body.appendChild(fab);
-  restorePosition('fab', fab);
-
-  // Panel
-  const panel = doc.createElement('div');
-  panel.id = 'pa-panel';
-  panel.className = 'pa-panel pa-panel--hidden';
-  setImportantStyle(panel, 'pointer-events', 'auto');
-  setImportantStyle(panel, 'z-index', '2147483647');
-
-  panel.innerHTML = `
-    <div class="pa-statusbar">
-      <span id="pa-title" class="pa-statusbar__title">手机消息</span>
-      <span id="pa-badge" class="pa-statusbar__badge" style="display:none">0</span>
-      <button id="pa-settings-btn" class="pa-statusbar__btn" title="设置">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-      </button>
-      <button id="pa-close-btn" class="pa-statusbar__btn" title="关闭">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-      </button>
-    </div>
-    <div id="pa-messages" class="pa-messages">
-      <div class="pa-messages__empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M21 15a4 4 0 0 1-4 4H7l-4 4V5a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>
-        </svg>
-        <span>暂无消息</span>
-        <span style="font-size:11px">AI 输出 &lt;短信&gt; 内容时自动接收</span>
-      </div>
-    </div>
-    <div class="pa-input">
-      <textarea id="pa-input-field" class="pa-input__field" placeholder="输入手机消息..." rows="1"></textarea>
-      <button id="pa-input-send" class="pa-input__send" disabled>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-        </svg>
-      </button>
-    </div>
-
-    <!-- Settings Overlay -->
-    <div id="pa-settings" class="pa-settings pa-settings--hidden">
-      <div class="pa-settings__header">
-        <button id="pa-settings-back" class="pa-statusbar__btn" title="返回">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
-        <span class="pa-settings__title">联动设置</span>
-      </div>
-      <div class="pa-settings__body">
-        <div class="pa-setting-row">
-          <div>
-            <div class="pa-setting-row__label">酒馆 → 手机</div>
-            <div class="pa-setting-row__desc">AI 输出 &lt;短信&gt; 标签时自动添加为手机消息</div>
-          </div>
-          <div id="pa-toggle-tp" class="pa-toggle"></div>
-        </div>
-        <div class="pa-setting-row">
-          <div>
-            <div class="pa-setting-row__label">手机 → 酒馆</div>
-            <div class="pa-setting-row__desc">手机输入的消息自动发送到酒馆对话框</div>
-          </div>
-          <div id="pa-toggle-pt" class="pa-toggle"></div>
-        </div>
-        <div class="pa-setting-row">
-          <div>
-            <div class="pa-setting-row__label">自动触发 AI 回复</div>
-            <div class="pa-setting-row__desc">发送消息后自动触发 AI 生成回复</div>
-          </div>
-          <div id="pa-toggle-at" class="pa-toggle"></div>
-        </div>
+  const container = hostDocument.createElement('div');
+  container.id = ROOT_ID;
+  container.innerHTML = `
+    <button id="xp-fab" class="xp-fab" type="button" aria-label="打开小手机">
+      <span class="xp-fab__screen"></span>
+      <span id="xp-badge" class="xp-badge" hidden>0</span>
+    </button>
+    <section id="xp-panel" class="xp-panel xp-panel--hidden" aria-label="小手机短信窗口">
+      <header id="xp-titlebar" class="xp-titlebar">
         <div>
-          <label class="pa-setting-row__label">输出标签</label>
-          <div class="pa-setting-row__desc" style="margin-bottom:6px">AI 输出中用此标签包裹的内容会被解析为手机消息</div>
-          <input id="pa-tag-input" class="pa-settings-input" type="text" value="${DEFAULT_SMS_TAG}" />
+          <div class="xp-titlebar__name">小手机</div>
+          <div class="xp-titlebar__sub">${VERSION} · &lt;${SMS_TAG}&gt;</div>
         </div>
-        <div>
-          <label class="pa-setting-row__label">联系人名称（可选）</label>
-          <div class="pa-setting-row__desc" style="margin-bottom:6px">留空则自动使用酒馆当前角色名</div>
-          <input id="pa-contact-input" class="pa-settings-input" type="text" placeholder="留空自动" />
+        <div class="xp-titlebar__actions">
+          <button id="xp-sync" class="xp-icon-btn" type="button" title="读取过去聊天记录">读</button>
+          <button id="xp-clear" class="xp-icon-btn" type="button" title="清空短信">清</button>
+          <button id="xp-close" class="xp-icon-btn" type="button" title="关闭">×</button>
         </div>
-        <button id="pa-sync-history-btn" class="pa-settings-btn">读取过去聊天记录</button>
-        <button id="pa-clear-btn" class="pa-settings-btn pa-settings-btn--danger">清除所有手机消息</button>
-        <div class="pa-settings__info">
-          提示：AI 输出包含 <code>&lt;短信&gt;内容&lt;/短信&gt;</code> 时，内容会自动出现在手机面板中。
-          在手机面板输入的消息会发送到酒馆对话框。
-        </div>
-      </div>
-    </div>
+      </header>
+      <main id="xp-messages" class="xp-messages"></main>
+      <footer class="xp-composer">
+        <textarea id="xp-input" class="xp-input" rows="1" placeholder="输入短信"></textarea>
+        <button id="xp-send" class="xp-send" type="button" disabled>发送</button>
+      </footer>
+    </section>
   `;
+  hostDocument.body.appendChild(container);
 
-  doc.body.appendChild(panel);
-  restorePosition('panel', panel);
+  const fab = byId<HTMLElement>('xp-fab');
+  const panel = byId<HTMLElement>('xp-panel');
+  if (!fab || !panel) return;
+
+  restorePosition('fab', fab, () => {
+    const view = viewport();
+    return { left: view.width - 76, top: view.height - 84 };
+  });
+  restorePosition('panel', panel, () => {
+    const view = viewport();
+    return { left: Math.max(8, view.width - 364), top: Math.max(8, view.height - 624) };
+  });
 }
 
-// ────────────────────────────── UI Logic ──────────────────────────
-
-function togglePanel(show?: boolean): void {
-  const panel = getUiDocument().getElementById('pa-panel') as HTMLElement | null;
-  const fab = getUiDocument().getElementById('pa-fab');
+function openPanel(force = true): void {
+  const panel = byId<HTMLElement>('xp-panel');
+  const fab = byId<HTMLElement>('xp-fab');
   if (!panel) return;
+  panelOpen = force ? true : !panelOpen;
+  panel.classList.toggle('xp-panel--hidden', !panelOpen);
+  fab?.classList.toggle('xp-fab--active', panelOpen);
+  if (!panelOpen) return;
 
-  panelVisible = show !== undefined ? show : !panelVisible;
-
-  panel.classList.toggle('pa-panel--hidden', !panelVisible);
-  fab?.classList.remove('pa-fab--hidden');
-  updateQuickReplyButtonState();
-
-  if (panelVisible) {
-    ensurePanelInViewport(panel);
-    renderMessages();
-    // Scroll to bottom
-    const msgsEl = getUiDocument().getElementById('pa-messages');
-    if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
-  }
+  setStyle(panel, 'display', 'flex');
+  setStyle(panel, 'visibility', 'visible');
+  setStyle(panel, 'opacity', '1');
+  setStyle(panel, 'pointer-events', 'auto');
+  keepPanelVisible(panel);
+  syncFromChat(false);
+  scrollMessagesToBottom();
 }
 
-function ensurePanelInViewport(panel: HTMLElement): void {
-  panel.classList.remove('pa-panel--hidden');
-  setImportantStyle(panel, 'position', 'fixed');
-  setImportantStyle(panel, 'display', 'flex');
-  setImportantStyle(panel, 'visibility', 'visible');
-  setImportantStyle(panel, 'opacity', '1');
-  setImportantStyle(panel, 'pointer-events', 'auto');
-  setImportantStyle(panel, 'z-index', '2147483647');
+function closePanel(): void {
+  const panel = byId<HTMLElement>('xp-panel');
+  const fab = byId<HTMLElement>('xp-fab');
+  panelOpen = false;
+  panel?.classList.add('xp-panel--hidden');
+  if (panel) setStyle(panel, 'display', 'none');
+  fab?.classList.remove('xp-fab--active');
+}
 
+function keepPanelVisible(panel: HTMLElement): void {
   requestAnimationFrame(() => {
-    const view = getViewportSize(getUiDocument());
-    const mobile = view.width <= 480;
-
+    const view = viewport();
+    const mobile = view.width <= 520;
     if (mobile) {
-      const width = Math.max(280, view.width - 16);
-      const height = Math.max(320, view.height - 16);
-      setImportantStyle(panel, 'width', `${width}px`);
-      setImportantStyle(panel, 'height', `${height}px`);
-      setImportantStyle(panel, 'max-height', `${height}px`);
+      setStyle(panel, 'width', `${Math.max(288, view.width - 16)}px`);
+      setStyle(panel, 'height', `${Math.max(360, view.height - 16)}px`);
       placeElement(panel, 8, 8);
-      savePosition('panel', panel);
+      rememberPosition('panel', panel);
       return;
     }
 
-    let rect = panel.getBoundingClientRect();
-    if (rect.width < 80 || rect.height < 120) {
-      setImportantStyle(panel, 'width', '340px');
-      setImportantStyle(panel, 'height', '520px');
-      rect = panel.getBoundingClientRect();
+    setStyle(panel, 'width', '340px');
+    setStyle(panel, 'height', `${Math.min(560, view.height - 24)}px`);
+    const rect = panel.getBoundingClientRect();
+    const outside = rect.left < 0 || rect.top < 0 || rect.right > view.width || rect.bottom > view.height;
+    if (outside || rect.width < 240 || rect.height < 300) {
+      placeElement(panel, view.width - 364, Math.max(8, view.height - rect.height - 88));
+      rememberPosition('panel', panel);
+    } else {
+      placeElement(panel, rect.left, rect.top);
     }
-
-    const offscreen =
-      rect.right < 16 ||
-      rect.bottom < 16 ||
-      rect.left > view.width - 16 ||
-      rect.top > view.height - 16;
-
-    if (offscreen) {
-      const left = Math.max(8, view.width - rect.width - 24);
-      const top = Math.max(8, view.height - rect.height - 96);
-      placeElement(panel, left, top);
-      savePosition('panel', panel);
-      return;
-    }
-
-    placeElement(panel, rect.left, rect.top);
   });
 }
 
 function renderMessages(): void {
-  const doc = getUiDocument();
-  const msgsEl = getUiDocument().getElementById('pa-messages');
-  if (!msgsEl) return;
+  const list = byId<HTMLElement>('xp-messages');
+  if (!list) return;
+  const state = loadState();
+  const messages = state.messages;
+  list.innerHTML = '';
 
-  const msgs = loadMessages();
-  const emptyEl = msgsEl.querySelector('.pa-messages__empty');
-
-  if (msgs.length === 0) {
-    if (emptyEl) emptyEl.style.display = '';
-    // Remove any message elements
-    msgsEl.querySelectorAll('.pa-msg').forEach(el => el.remove());
-    updateBadge(0);
-    return;
-  }
-
-  if (emptyEl) emptyEl.style.display = 'none';
-  updateBadge(msgs.filter(m => m.role === 'char').length);
-
-  // Build message elements
-  const existingIds = new Set<string>();
-  msgsEl.querySelectorAll('.pa-msg').forEach(el => {
-    const id = el.getAttribute('data-id');
-    if (id) existingIds.add(id);
-  });
-
-  // Remove messages that no longer exist
-  const currentIds = new Set(msgs.map(m => m.id));
-  msgsEl.querySelectorAll('.pa-msg').forEach(el => {
-    const id = el.getAttribute('data-id');
-    if (id && !currentIds.has(id)) el.remove();
-  });
-
-  // Add or update messages
-  for (const msg of msgs) {
-    if (existingIds.has(msg.id)) continue;
-
-    const div = doc.createElement('div');
-    div.className = `pa-msg pa-msg--${msg.role}`;
-    div.setAttribute('data-id', msg.id);
-
-    const bubble = doc.createElement('div');
-    bubble.className = 'pa-msg__bubble';
-    bubble.textContent = msg.content;
-
-    const actions = doc.createElement('div');
-    actions.className = 'pa-msg__actions';
-
-    const editBtn = doc.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'pa-msg__action';
-    editBtn.title = '编辑';
-    editBtn.setAttribute('aria-label', '编辑消息');
-    editBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-      </svg>
-    `;
-    editBtn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      editMessage(msg.id);
-    });
-
-    const deleteBtn = doc.createElement('button');
-    deleteBtn.type = 'button';
-    deleteBtn.className = 'pa-msg__action pa-msg__action--danger';
-    deleteBtn.title = '删除';
-    deleteBtn.setAttribute('aria-label', '删除消息');
-    deleteBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 6h18" />
-        <path d="M8 6V4h8v2" />
-        <path d="M19 6l-1 18H6L5 6" />
-        <path d="M10 11v6" />
-        <path d="M14 11v6" />
-      </svg>
-    `;
-    deleteBtn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      deleteMessage(msg.id);
-    });
-
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
-
-    const time = doc.createElement('div');
-    time.className = 'pa-msg__time';
-    time.textContent = timeStr(msg.ts);
-
-    div.appendChild(bubble);
-    div.appendChild(actions);
-    div.appendChild(time);
-    msgsEl.appendChild(div);
-  }
-
-  msgsEl.scrollTop = msgsEl.scrollHeight;
-}
-
-function updateBadge(count: number): void {
-  const badge = getUiDocument().getElementById('pa-badge');
-  if (!badge) return;
-  if (count > 0) {
-    badge.style.display = '';
-    badge.textContent = String(count);
+  if (messages.length === 0) {
+    const empty = hostDocument.createElement('div');
+    empty.className = 'xp-empty';
+    empty.textContent = `还没有短信。AI 回复里写 <${SMS_TAG}>内容</${SMS_TAG}> 后会自动出现在这里。`;
+    list.appendChild(empty);
   } else {
-    badge.style.display = 'none';
+    for (const message of messages) {
+      const item = hostDocument.createElement('article');
+      item.className = `xp-msg xp-msg--${message.role}`;
+      item.dataset.id = message.id;
+
+      const bubble = hostDocument.createElement('div');
+      bubble.className = 'xp-msg__bubble';
+      bubble.textContent = message.text;
+
+      const meta = hostDocument.createElement('div');
+      meta.className = 'xp-msg__meta';
+      meta.textContent = formatTime(message.time);
+
+      const actions = hostDocument.createElement('div');
+      actions.className = 'xp-msg__actions';
+      const edit = createButton('改', 'xp-msg__action', '编辑短信');
+      const del = createButton('删', 'xp-msg__action xp-msg__action--danger', '删除短信');
+      edit.addEventListener('click', () => editPhoneMessage(message.id));
+      del.addEventListener('click', () => deletePhoneMessage(message.id));
+      actions.append(edit, del);
+
+      item.append(bubble, actions, meta);
+      list.appendChild(item);
+    }
+  }
+
+  const badge = byId<HTMLElement>('xp-badge');
+  const unread = messages.filter(message => message.role === 'char').length;
+  if (badge) {
+    badge.hidden = unread === 0;
+    badge.textContent = String(unread);
   }
 }
 
-function toggleSettings(show?: boolean): void {
-  const settingsEl = getUiDocument().getElementById('pa-settings');
-  if (!settingsEl) return;
-  settingsVisible = show !== undefined ? show : !settingsVisible;
-  settingsEl.classList.toggle('pa-settings--hidden', !settingsVisible);
+function scrollMessagesToBottom(): void {
+  const list = byId<HTMLElement>('xp-messages');
+  if (list) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
 }
 
-function renderSettings(): void {
-  const s = loadSettings();
-  setToggle('pa-toggle-tp', s.tavernToPhone);
-  setToggle('pa-toggle-pt', s.phoneToTavern);
-  setToggle('pa-toggle-at', s.autoTrigger);
-
-  const tagInput = getUiDocument().getElementById('pa-tag-input') as HTMLInputElement;
-  if (tagInput) tagInput.value = s.outTag;
-
-  const contactInput = getUiDocument().getElementById('pa-contact-input') as HTMLInputElement;
-  if (contactInput) contactInput.value = s.contactName;
-
-  // Update status bar title
-  const title = getUiDocument().getElementById('pa-title');
-  if (title) {
-    const userName = getUserName();
-    title.textContent = `${userName} · {{char}}`;
-  }
-}
-
-function setToggle(id: string, on: boolean): void {
-  const el = getUiDocument().getElementById(id);
-  if (!el) return;
-  el.classList.toggle('pa-toggle--on', on);
-
-  // Ensure knob exists
-  if (!el.querySelector('.pa-toggle__knob')) {
-    const knob = getUiDocument().createElement('div');
-    knob.className = 'pa-toggle__knob';
-    el.appendChild(knob);
-  }
-}
-
-// ────────────────────────────── Event Binding ──────────────────────
-
-function setupDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string): void {
-  const doc = getUiDocument();
-  let moved = false;
-
-  handle.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 && event.pointerType !== 'touch') return;
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('button, input, textarea, select, a')) return;
-    event.stopPropagation();
-
-    const rect = el.getBoundingClientRect();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startLeft = rect.left;
-    const startTop = rect.top;
-    moved = false;
-
-    el.classList.add('pa-dragging');
-    handle.setPointerCapture?.(event.pointerId);
-
-    const onMove = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault();
-      moveEvent.stopPropagation();
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-      placeElement(el, startLeft + dx, startTop + dy);
-    };
-
-    const onUp = (upEvent: PointerEvent) => {
-      upEvent.stopPropagation();
-      doc.removeEventListener('pointermove', onMove);
-      doc.removeEventListener('pointerup', onUp);
-      doc.removeEventListener('pointercancel', onUp);
-      handle.releasePointerCapture?.(upEvent.pointerId);
-      el.classList.remove('pa-dragging');
-
-      if (moved) {
-        savePosition(storageKey, el);
-      } else if (el.id === 'pa-fab') {
-        togglePanel(true);
-      }
-    };
-
-    doc.addEventListener('pointermove', onMove, { capture: true });
-    doc.addEventListener('pointerup', onUp, { capture: true });
-    doc.addEventListener('pointercancel', onUp, { capture: true });
-  }, { capture: true });
-}
-
-function deleteMessage(id: string): void {
-  saveMessages(loadMessages().filter(msg => msg.id !== id));
-  renderMessages();
-}
-
-function editMessage(id: string): void {
-  const msgs = loadMessages();
-  const msg = msgs.find(item => item.id === id);
-  if (!msg) return;
-  const next = prompt('编辑消息', msg.content);
-  if (next === null) return;
-  const trimmed = next.trim();
-  if (!trimmed) return;
-  msg.content = trimmed;
-  saveMessages(msgs);
-  renderMessages();
-}
-
-function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string): void {
-  const doc = getUiDocument();
-  const win = doc.defaultView ?? window;
+function bindDrag(el: HTMLElement, handle: HTMLElement, key: 'fab' | 'panel', onTap?: () => void): void {
+  const win = hostDocument.defaultView ?? window;
+  let pointerId: number | null = null;
   let startX = 0;
   let startY = 0;
   let startLeft = 0;
   let startTop = 0;
   let moved = false;
-  let dragging = false;
-  let ignoreNextClick = false;
 
-  const readPoint = (event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
-    if ('touches' in event) {
-      const touch = event.touches[0] ?? event.changedTouches[0];
-      return touch ? { x: touch.clientX, y: touch.clientY } : null;
-    }
-    return { x: event.clientX, y: event.clientY };
-  };
-
-  const start = (event: MouseEvent | TouchEvent): void => {
-    if ('button' in event && event.button !== 0) return;
+  const start = (event: PointerEvent): void => {
+    if (event.button !== 0 && event.pointerType !== 'touch') return;
     const target = event.target as HTMLElement | null;
-    if (el.id !== 'pa-fab' && target?.closest('button, input, textarea, select, a')) return;
-    const point = readPoint(event);
-    if (!point) return;
-
+    if (key === 'panel' && target?.closest('button, textarea, input, select, a')) return;
     const rect = el.getBoundingClientRect();
-    startX = point.x;
-    startY = point.y;
+    pointerId = event.pointerId;
+    startX = event.clientX;
+    startY = event.clientY;
     startLeft = rect.left;
     startTop = rect.top;
     moved = false;
-    dragging = true;
-    el.classList.add('pa-dragging');
-    if ('cancelable' in event && event.cancelable) event.preventDefault();
+    el.classList.add('xp-dragging');
+    handle.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
     event.stopPropagation();
   };
 
-  const move = (event: MouseEvent | TouchEvent): void => {
-    if (!dragging) return;
-    const point = readPoint(event);
-    if (!point) return;
-    const dx = point.x - startX;
-    const dy = point.y - startY;
-    if (Math.abs(dx) + Math.abs(dy) > 5) moved = true;
+  const move = (event: PointerEvent): void => {
+    if (pointerId !== event.pointerId) return;
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
     placeElement(el, startLeft + dx, startTop + dy);
     event.preventDefault();
     event.stopPropagation();
   };
 
-  const end = (event: MouseEvent | TouchEvent): void => {
-    if (!dragging) return;
-    dragging = false;
-    el.classList.remove('pa-dragging');
-    if (moved) {
-      ignoreNextClick = true;
-      el.dataset.paLastTouchTap = String(Date.now());
-      savePosition(storageKey, el);
-    } else if (el.id === 'pa-fab') {
-      el.dataset.paLastTouchTap = String(Date.now());
-      togglePanel(true);
-    }
+  const end = (event: PointerEvent): void => {
+    if (pointerId !== event.pointerId) return;
+    pointerId = null;
+    el.classList.remove('xp-dragging');
+    handle.releasePointerCapture?.(event.pointerId);
+    if (moved) rememberPosition(key, el);
+    else onTap?.();
+    event.preventDefault();
     event.stopPropagation();
   };
 
-  el.addEventListener('click', (event) => {
-    if (!ignoreNextClick) return;
-    ignoreNextClick = false;
-    event.preventDefault();
-    event.stopPropagation();
-  }, { capture: true });
-
-  handle.addEventListener('mousedown', start, { capture: true });
-  handle.addEventListener('touchstart', start, { capture: true, passive: false });
-  win.addEventListener('mousemove', move, { capture: true });
-  win.addEventListener('touchmove', move, { capture: true, passive: false });
-  win.addEventListener('mouseup', end, { capture: true });
-  win.addEventListener('touchend', end, { capture: true });
-  win.addEventListener('touchcancel', end, { capture: true });
-  doc.addEventListener('mouseleave', end, { capture: true });
+  handle.addEventListener('pointerdown', start, { capture: true });
+  win.addEventListener('pointermove', move, { capture: true });
+  win.addEventListener('pointerup', end, { capture: true });
+  win.addEventListener('pointercancel', end, { capture: true });
+  cleanupFns.push(() => {
+    handle.removeEventListener('pointerdown', start, { capture: true });
+    win.removeEventListener('pointermove', move, { capture: true });
+    win.removeEventListener('pointerup', end, { capture: true });
+    win.removeEventListener('pointercancel', end, { capture: true });
+  });
 }
 
-function wasRecentTouchTap(el: HTMLElement): boolean {
-  const last = Number(el.dataset.paLastTouchTap || 0);
-  return Number.isFinite(last) && Date.now() - last < 450;
-}
+function bindUi(): void {
+  const fab = byId<HTMLElement>('xp-fab');
+  const panel = byId<HTMLElement>('xp-panel');
+  const titlebar = byId<HTMLElement>('xp-titlebar');
+  const input = byId<HTMLTextAreaElement>('xp-input');
+  const send = byId<HTMLButtonElement>('xp-send');
+  if (!fab || !panel || !titlebar) return;
 
-function ensureFabVisible(): void {
-  const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
-  if (!fab) return;
-  fab.classList.remove('pa-fab--hidden');
-  setImportantStyle(fab, 'display', 'flex');
-  setImportantStyle(fab, 'opacity', '1');
-  setImportantStyle(fab, 'pointer-events', 'auto');
-  const rect = fab.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) {
-    setImportantStyle(fab, 'width', '56px');
-    setImportantStyle(fab, 'height', '56px');
-  }
-  placeElement(fab, rect.left || 24, rect.top || 24);
-}
+  bindDrag(fab, fab, 'fab', () => openPanel(true));
+  bindDrag(panel, titlebar, 'panel');
 
-function bindEvents(): void {
-  // FAB click - open panel
-  const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
-  const panel = getUiDocument().getElementById('pa-panel') as HTMLElement | null;
-  const statusbar = getUiDocument().querySelector('#pa-panel .pa-statusbar') as HTMLElement | null;
-
-  if (fab) {
-    setupBasicDraggable(fab, fab, 'fab');
-    fab.addEventListener('click', (event) => {
+  fab.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      event.stopPropagation();
-      if (wasRecentTouchTap(fab)) return;
-      togglePanel(true);
-    });
-    fab.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        togglePanel(true);
-      }
-    });
-  }
-
-  if (panel && statusbar) {
-    setupBasicDraggable(panel, statusbar, 'panel');
-  }
-
-  // Close panel
-  getUiDocument().getElementById('pa-close-btn')?.addEventListener('click', () => togglePanel(false));
-
-  // Settings toggle
-  getUiDocument().getElementById('pa-settings-btn')?.addEventListener('click', () => {
-    renderSettings();
-    toggleSettings(true);
-  });
-
-  // Settings back
-  getUiDocument().getElementById('pa-settings-back')?.addEventListener('click', () => {
-    toggleSettings(false);
-  });
-
-  // Toggle: tavern→phone
-  setupToggleClick('pa-toggle-tp', (on) => {
-    const s = loadSettings();
-    s.tavernToPhone = on;
-    saveSettings(s);
-  });
-
-  // Toggle: phone→tavern
-  setupToggleClick('pa-toggle-pt', (on) => {
-    const s = loadSettings();
-    s.phoneToTavern = on;
-    saveSettings(s);
-  });
-
-  // Toggle: auto trigger
-  setupToggleClick('pa-toggle-at', (on) => {
-    const s = loadSettings();
-    s.autoTrigger = on;
-    saveSettings(s);
-  });
-
-  // Tag input
-  const tagInput = getUiDocument().getElementById('pa-tag-input') as HTMLInputElement;
-  tagInput?.addEventListener('change', () => {
-    const s = loadSettings();
-    s.outTag = tagInput.value.trim() || DEFAULT_SMS_TAG;
-    saveSettings(s);
-  });
-
-  // Contact input
-  const contactInput = getUiDocument().getElementById('pa-contact-input') as HTMLInputElement;
-  contactInput?.addEventListener('change', () => {
-    const s = loadSettings();
-    s.contactName = contactInput.value.trim();
-    saveSettings(s);
-  });
-
-  // Clear messages
-  getUiDocument().getElementById('pa-sync-history-btn')?.addEventListener('click', () => {
-    syncTavernHistory(true);
-  });
-
-  getUiDocument().getElementById('pa-clear-btn')?.addEventListener('click', () => {
-    if (confirm('确定清除所有手机消息？')) {
-      clearMessages();
-      renderMessages();
-      parentToast('手机消息已清除', 'info');
+      openPanel(true);
     }
   });
 
-  // Send message
-  const sendBtn = getUiDocument().getElementById('pa-input-send');
-  const inputField = getUiDocument().getElementById('pa-input-field') as HTMLTextAreaElement;
+  byId<HTMLButtonElement>('xp-close')?.addEventListener('click', closePanel);
+  byId<HTMLButtonElement>('xp-sync')?.addEventListener('click', () => syncFromChat(true));
+  byId<HTMLButtonElement>('xp-clear')?.addEventListener('click', clearPhoneMessages);
 
-  function doSend(): void {
-    if (!inputField) return;
-    const text = inputField.value.trim();
+  const doSend = (): void => {
+    if (!input) return;
+    const text = input.value.trim();
     if (!text) return;
+    addPhoneMessage('user', text);
+    input.value = '';
+    input.style.height = 'auto';
+    if (send) send.disabled = true;
+    sendToTavern(text);
+    scrollMessagesToBottom();
+  };
 
-    // Add user message to phone
-    addMessage('user', text);
-    renderMessages();
-    inputField.value = '';
-    inputField.style.height = 'auto';
-    if (sendBtn) (sendBtn as HTMLButtonElement).disabled = true;
-
-    // Bridge to tavern
-    phoneToTavernBridge(text);
-  }
-
-  sendBtn?.addEventListener('click', doSend);
-
-  inputField?.addEventListener('input', () => {
-    // Auto-resize
-    inputField.style.height = 'auto';
-    inputField.style.height = Math.min(inputField.scrollHeight, 80) + 'px';
-    if (sendBtn) {
-      (sendBtn as HTMLButtonElement).disabled = !inputField.value.trim();
-    }
+  send?.addEventListener('click', doSend);
+  input?.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(92, input.scrollHeight)}px`;
+    if (send) send.disabled = !input.value.trim();
   });
-
-  inputField?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
+  input?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
       doSend();
     }
   });
 
-  // Message auto-refresh when panel opens
-  const observer = new MutationObserver(() => {
-    const panel = getUiDocument().getElementById('pa-panel');
-    if (panel && !panel.classList.contains('pa-panel--hidden')) {
-      renderMessages();
-    }
+  const win = hostDocument.defaultView ?? window;
+  win.addEventListener('resize', () => {
+    if (panelOpen) keepPanelVisible(panel);
+    const fabRect = fab.getBoundingClientRect();
+    placeElement(fab, fabRect.left, fabRect.top);
   });
-  observer.observe(getUiDocument().body, { attributeFilter: ['class'], subtree: true });
-  setTimeout(ensureFabVisible, 300);
-  setTimeout(ensureFabVisible, 1200);
 }
 
-function setupToggleClick(id: string, onChange: (on: boolean) => void): void {
-  const el = getUiDocument().getElementById(id);
-  if (!el) return;
+function listenToTavernEvents(): void {
+  const win = getParentWindow() as unknown as Record<string, unknown>;
+  const eventSource = win.eventSource as { on?: (event: string, cb: (...args: unknown[]) => void) => unknown; off?: (event: string, cb: (...args: unknown[]) => void) => void; removeListener?: (event: string, cb: (...args: unknown[]) => void) => void } | undefined;
 
-  // Ensure knob exists
-  if (!el.querySelector('.pa-toggle__knob')) {
-    const knob = getUiDocument().createElement('div');
-    knob.className = 'pa-toggle__knob';
-    el.appendChild(knob);
+  const run = (): void => { syncFromChat(false); };
+  const events = ['MESSAGE_RECEIVED', 'GENERATION_AFTER_COMMANDS', 'CHAT_CHANGED'];
+
+  if (eventSource && typeof eventSource.on === 'function') {
+    events.forEach(eventName => {
+      eventSource.on?.(eventName, run);
+      cleanupFns.push(() => {
+        eventSource.off?.(eventName, run);
+        eventSource.removeListener?.(eventName, run);
+      });
+    });
   }
 
-  el.addEventListener('click', () => {
-    const currentlyOn = el.classList.contains('pa-toggle--on');
-    el.classList.toggle('pa-toggle--on', !currentlyOn);
-    onChange(!currentlyOn);
-  });
+  const timer = window.setInterval(run, 2500);
+  cleanupFns.push(() => window.clearInterval(timer));
 }
-
-// ────────────────────────────── Init ──────────────────────────────
 
 function init(): void {
-  const rootId = 'pa-script-root';
-  uiDocument = getHostDocument();
-  injectPhoneStyle(uiDocument);
-
-  let root = uiDocument.getElementById(rootId);
-  if (!root) {
-    root = uiDocument.createElement('div');
-    root.id = rootId;
-    uiDocument.body.appendChild(root);
-  }
-  root.innerHTML = '';
-
-  createUI(rootId);
-  try {
-    renderMessages();
-    renderSettings();
-  } catch (err) {
-    console.warn('[PA] initial render failed:', err);
-  }
-  bindEvents();
-  try {
-    setupQuickReplyButton();
-  } catch (err) {
-    console.warn('[PA] quick reply button failed:', err);
-  }
-
-  // Setup tavern event listeners
-  try {
-    setupTavernListeners();
-    handleTavernMessages();
-  } catch (err) {
-    console.warn('[PA] tavern listeners failed:', err);
-  }
-
-  // Try to detect current character name and update
-  const st = getSillyTavern();
-  if (st) {
-    if (typeof st.name2 === 'string') {
-      const s = loadSettings();
-      if (!s.contactName && st.name2) {
-        s.contactName = st.name2;
-        saveSettings(s);
-      }
-    }
-  }
-
-  window.addEventListener('pagehide', () => {
-    eventCleanups.forEach(fn => fn());
-    if (quickReplyTimer !== undefined) {
-      window.clearInterval(quickReplyTimer);
-    }
-  });
-
-  parentToast('手机助手已启动', 'info');
-  console.info('[PA] tavern phone assistant initialized');
+  hostDocument = getHostDocument();
+  cleanupFns.forEach(fn => fn());
+  cleanupFns = [];
+  buildUi();
+  renderMessages();
+  bindUi();
+  listenToTavernEvents();
+  syncFromChat(false);
+  toast(`小手机已启动 ${VERSION}`, 'info');
 }
 
-// Boot on DOM ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', init, { once: true });
 } else {
   init();
 }
-
-
-
-
-
-

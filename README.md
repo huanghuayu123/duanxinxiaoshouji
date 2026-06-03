@@ -5,8 +5,15 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.13'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.14'
 ```
+
+## v1.0.14
+
+- 从头重写脚本实现，仅参考旧版功能，不沿用 v1.0.9-v1.0.13 的补丁式结构。
+- 支持悬浮手机按钮、点击打开小手机窗口、按钮/窗口拖动、AI `<短信>...</短信>` 自动读取、历史读取、短信编辑/删除。
+- 小手机发送会写回酒馆输入框为 `<短信>内容</短信>`，找到发送按钮时会同时触发发送。
+- 面板打开时按当前视口重新归位，手机端使用满屏内边距布局，避免按钮亮起但面板不显示。
 
 ## v1.0.13
 
