@@ -883,7 +883,7 @@ function togglePanel(show?: boolean): void {
   updateQuickReplyButtonState();
 
   if (panelVisible) {
-    revealPanel(panel);
+    ensurePanelInViewport(panel);
     renderMessages();
     // Scroll to bottom
     const msgsEl = getUiDocument().getElementById('pa-messages');
@@ -891,7 +891,7 @@ function togglePanel(show?: boolean): void {
   }
 }
 
-function revealPanel(panel: HTMLElement): void {
+function ensurePanelInViewport(panel: HTMLElement): void {
   panel.classList.remove('pa-panel--hidden');
   setImportantStyle(panel, 'position', 'fixed');
   setImportantStyle(panel, 'display', 'flex');
@@ -901,77 +901,42 @@ function revealPanel(panel: HTMLElement): void {
   setImportantStyle(panel, 'z-index', '2147483647');
 
   requestAnimationFrame(() => {
-    const doc = getUiDocument();
-    const view = getViewportSize(doc);
-    const rect = panel.getBoundingClientRect();
-    const isMobile = view.width <= 480;
-    const invalidRect = rect.width < 80 || rect.height < 120;
+    const view = getViewportSize(getUiDocument());
+    const mobile = view.width <= 480;
 
-    if (isMobile) {
-      setImportantStyle(panel, 'width', `${Math.max(280, view.width - 16)}px`);
-      setImportantStyle(panel, 'height', `${Math.max(320, view.height - 16)}px`);
-      setImportantStyle(panel, 'max-height', `${Math.max(320, view.height - 16)}px`);
+    if (mobile) {
+      const width = Math.max(280, view.width - 16);
+      const height = Math.max(320, view.height - 16);
+      setImportantStyle(panel, 'width', `${width}px`);
+      setImportantStyle(panel, 'height', `${height}px`);
+      setImportantStyle(panel, 'max-height', `${height}px`);
       placeElement(panel, 8, 8);
       savePosition('panel', panel);
-      verifyPanelVisible(panel);
       return;
     }
 
-    if (invalidRect) {
+    let rect = panel.getBoundingClientRect();
+    if (rect.width < 80 || rect.height < 120) {
       setImportantStyle(panel, 'width', '340px');
       setImportantStyle(panel, 'height', '520px');
+      rect = panel.getBoundingClientRect();
     }
 
-    const nextRect = panel.getBoundingClientRect();
     const offscreen =
-      nextRect.right < 24 ||
-      nextRect.bottom < 24 ||
-      nextRect.left > view.width - 24 ||
-      nextRect.top > view.height - 24;
+      rect.right < 16 ||
+      rect.bottom < 16 ||
+      rect.left > view.width - 16 ||
+      rect.top > view.height - 16;
 
-    if (offscreen || invalidRect) {
-      const left = Math.max(8, view.width - nextRect.width - 24);
-      const top = Math.max(8, view.height - nextRect.height - 96);
+    if (offscreen) {
+      const left = Math.max(8, view.width - rect.width - 24);
+      const top = Math.max(8, view.height - rect.height - 96);
       placeElement(panel, left, top);
       savePosition('panel', panel);
-      verifyPanelVisible(panel);
       return;
     }
 
-    placeElement(panel, nextRect.left, nextRect.top);
-    verifyPanelVisible(panel);
-  });
-}
-
-function verifyPanelVisible(panel: HTMLElement): void {
-  requestAnimationFrame(() => {
-    const doc = getUiDocument();
-    const view = getViewportSize(doc);
-    const rect = panel.getBoundingClientRect();
-    const style = doc.defaultView?.getComputedStyle(panel);
-    const hidden =
-      style?.display === 'none' ||
-      style?.visibility === 'hidden' ||
-      rect.width < 80 ||
-      rect.height < 120 ||
-      rect.right < 8 ||
-      rect.bottom < 8 ||
-      rect.left > view.width - 8 ||
-      rect.top > view.height - 8;
-
-    if (!hidden) return;
-
-    panel.classList.remove('pa-panel--hidden');
-    setImportantStyle(panel, 'position', 'fixed');
-    setImportantStyle(panel, 'display', 'flex');
-    setImportantStyle(panel, 'visibility', 'visible');
-    setImportantStyle(panel, 'opacity', '1');
-    setImportantStyle(panel, 'pointer-events', 'auto');
-    setImportantStyle(panel, 'z-index', '2147483647');
-    setImportantStyle(panel, 'width', `${Math.max(280, Math.min(340, view.width - 16))}px`);
-    setImportantStyle(panel, 'height', `${Math.max(320, Math.min(520, view.height - 16))}px`);
-    placeElement(panel, 8, 8);
-    savePosition('panel', panel);
+    placeElement(panel, rect.left, rect.top);
   });
 }
 
@@ -1197,6 +1162,7 @@ function editMessage(id: string): void {
 
 function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: string): void {
   const doc = getUiDocument();
+  const win = doc.defaultView ?? window;
   let startX = 0;
   let startY = 0;
   let startLeft = 0;
@@ -1254,7 +1220,7 @@ function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: s
       savePosition(storageKey, el);
     } else if (el.id === 'pa-fab') {
       el.dataset.paLastTouchTap = String(Date.now());
-      togglePanel();
+      togglePanel(true);
     }
     event.stopPropagation();
   };
@@ -1268,40 +1234,12 @@ function setupBasicDraggable(el: HTMLElement, handle: HTMLElement, storageKey: s
 
   handle.addEventListener('mousedown', start, { capture: true });
   handle.addEventListener('touchstart', start, { capture: true, passive: false });
-  window.addEventListener('mousemove', move, { capture: true });
-  window.addEventListener('touchmove', move, { capture: true, passive: false });
-  window.addEventListener('mouseup', end, { capture: true });
-  window.addEventListener('touchend', end, { capture: true });
-  window.addEventListener('touchcancel', end, { capture: true });
+  win.addEventListener('mousemove', move, { capture: true });
+  win.addEventListener('touchmove', move, { capture: true, passive: false });
+  win.addEventListener('mouseup', end, { capture: true });
+  win.addEventListener('touchend', end, { capture: true });
+  win.addEventListener('touchcancel', end, { capture: true });
   doc.addEventListener('mouseleave', end, { capture: true });
-}
-
-function bindTouchFallback(el: HTMLElement, action: () => void): void {
-  let touchMoved = false;
-  let startX = 0;
-  let startY = 0;
-
-  el.addEventListener('touchstart', (event) => {
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    touchMoved = false;
-    startX = touch.clientX;
-    startY = touch.clientY;
-  }, { passive: true });
-
-  el.addEventListener('touchmove', (event) => {
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    if (Math.abs(touch.clientX - startX) + Math.abs(touch.clientY - startY) > 8) {
-      touchMoved = true;
-    }
-  }, { passive: true });
-
-  el.addEventListener('touchend', (event) => {
-    if (touchMoved) return;
-    el.dataset.paLastTouchTap = String(Date.now());
-    action();
-  }, { passive: true });
 }
 
 function wasRecentTouchTap(el: HTMLElement): boolean {
@@ -1309,40 +1247,17 @@ function wasRecentTouchTap(el: HTMLElement): boolean {
   return Number.isFinite(last) && Date.now() - last < 450;
 }
 
-function bindFabCaptureGuard(fab: HTMLElement): void {
-  const doc = getUiDocument();
-  const root = doc.getElementById('pa-script-root');
-  if (root?.dataset.paCaptureGuard === '1') return;
-  if (root) root.dataset.paCaptureGuard = '1';
-
-  const openFromFab = (event: Event): void => {
-    const target = event.target as HTMLElement | null;
-    if (!target?.closest('#pa-fab')) return;
-    event.stopPropagation();
-    togglePanel();
-  };
-
-  doc.addEventListener('click', openFromFab, { capture: true });
-  doc.addEventListener('touchend', openFromFab, { capture: true, passive: true });
-
-  requestAnimationFrame(() => {
-    const rect = fab.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    placeElement(fab, rect.left, rect.top);
-  });
-}
-
 function ensureFabVisible(): void {
   const fab = getUiDocument().getElementById('pa-fab') as HTMLElement | null;
   if (!fab) return;
   fab.classList.remove('pa-fab--hidden');
-  fab.style.display = 'flex';
-  fab.style.opacity = '1';
-  fab.style.pointerEvents = 'auto';
+  setImportantStyle(fab, 'display', 'flex');
+  setImportantStyle(fab, 'opacity', '1');
+  setImportantStyle(fab, 'pointer-events', 'auto');
   const rect = fab.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) {
-    fab.style.width = '56px';
-    fab.style.height = '56px';
+    setImportantStyle(fab, 'width', '56px');
+    setImportantStyle(fab, 'height', '56px');
   }
   placeElement(fab, rect.left || 24, rect.top || 24);
 }
@@ -1356,15 +1271,15 @@ function bindEvents(): void {
   if (fab) {
     setupBasicDraggable(fab, fab, 'fab');
     fab.addEventListener('click', (event) => {
-      if (wasRecentTouchTap(fab)) return;
       event.preventDefault();
       event.stopPropagation();
-      togglePanel();
+      if (wasRecentTouchTap(fab)) return;
+      togglePanel(true);
     });
     fab.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        togglePanel();
+        togglePanel(true);
       }
     });
   }

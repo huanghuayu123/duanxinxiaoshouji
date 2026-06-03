@@ -5,8 +5,14 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.12'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.13'
 ```
+
+## v1.0.13
+
+- 回到 v1.0.7/v1.0.8 的功能基线：保留 `<短信>` 自动读取、读取过去聊天记录、编辑消息、删除消息和发送回酒馆输入框。
+- 重做悬浮按钮的拖拽/轻点判断，轻点只负责打开面板，拖动只保存按钮位置。
+- 面板打开时直接挂在酒馆页面 body 顶层，并按当前电脑端/手机端视口归位，避免手机端或远程操作时按钮亮起但面板不显示。
 
 ## v1.0.12
 
