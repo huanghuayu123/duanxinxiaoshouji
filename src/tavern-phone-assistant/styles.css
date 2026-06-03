@@ -264,6 +264,17 @@
   background: rgba(255, 255, 255, 0.025);
 }
 
+.xp-panel--keyboard .xp-titlebar {
+  min-height: 52px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.xp-panel--keyboard .xp-messages {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
 .xp-input {
   flex: 1;
   min-height: 38px;

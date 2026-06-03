@@ -16,10 +16,18 @@ interface PhoneState {
   positions: Record<string, { left: number; top: number }>;
 }
 
+interface ViewportInfo {
+  width: number;
+  height: number;
+  layoutHeight: number;
+  offsetTop: number;
+  keyboardInset: number;
+}
+
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.15';
+const VERSION = 'v1.0.16';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -91,11 +99,20 @@ function formatTime(time: number): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-function viewport(): { width: number; height: number } {
+function viewport(): ViewportInfo {
   const win = hostDocument.defaultView ?? window;
+  const layoutWidth = win.innerWidth ?? hostDocument.documentElement.clientWidth ?? 360;
+  const layoutHeight = win.innerHeight ?? hostDocument.documentElement.clientHeight ?? 640;
+  const visual = win.visualViewport;
+  const width = visual?.width ?? layoutWidth;
+  const height = visual?.height ?? layoutHeight;
+  const offsetTop = visual?.offsetTop ?? 0;
   return {
-    width: win.visualViewport?.width ?? win.innerWidth ?? hostDocument.documentElement.clientWidth ?? 360,
-    height: win.visualViewport?.height ?? win.innerHeight ?? hostDocument.documentElement.clientHeight ?? 640,
+    width,
+    height,
+    layoutHeight,
+    offsetTop,
+    keyboardInset: Math.max(0, layoutHeight - height - offsetTop),
   };
 }
 
@@ -451,13 +468,17 @@ function keepPanelVisible(panel: HTMLElement): void {
     const view = viewport();
     const mobile = view.width <= 520;
     if (mobile) {
+      panel.classList.toggle('xp-panel--keyboard', view.keyboardInset > 32);
+      panel.style.setProperty('--xp-keyboard-inset', `${Math.round(view.keyboardInset)}px`);
       setStyle(panel, 'width', `${Math.max(288, view.width - 16)}px`);
-      setStyle(panel, 'height', `${Math.max(360, view.height - 16)}px`);
-      placeElement(panel, 8, 8);
+      setStyle(panel, 'height', `${Math.max(260, view.height - 16)}px`);
+      placeElement(panel, 8, Math.max(8, view.offsetTop + 8));
       rememberPosition('panel', panel);
       return;
     }
 
+    panel.classList.remove('xp-panel--keyboard');
+    panel.style.removeProperty('--xp-keyboard-inset');
     setStyle(panel, 'width', '340px');
     setStyle(panel, 'height', `${Math.min(560, view.height - 24)}px`);
     const rect = panel.getBoundingClientRect();
@@ -621,6 +642,13 @@ function bindUi(): void {
     input.style.height = 'auto';
     input.style.height = `${Math.min(92, input.scrollHeight)}px`;
     if (send) send.disabled = !input.value.trim();
+    if (panelOpen) keepPanelVisible(panel);
+  });
+  input?.addEventListener('focus', () => {
+    if (!panelOpen) return;
+    keepPanelVisible(panel);
+    window.setTimeout(() => keepPanelVisible(panel), 120);
+    window.setTimeout(() => keepPanelVisible(panel), 320);
   });
   input?.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -630,10 +658,18 @@ function bindUi(): void {
   });
 
   const win = hostDocument.defaultView ?? window;
-  win.addEventListener('resize', () => {
+  const fitViewport = (): void => {
     if (panelOpen) keepPanelVisible(panel);
     const fabRect = fab.getBoundingClientRect();
     placeElement(fab, fabRect.left, fabRect.top);
+  };
+  win.addEventListener('resize', fitViewport);
+  win.visualViewport?.addEventListener('resize', fitViewport);
+  win.visualViewport?.addEventListener('scroll', fitViewport);
+  cleanupFns.push(() => {
+    win.removeEventListener('resize', fitViewport);
+    win.visualViewport?.removeEventListener('resize', fitViewport);
+    win.visualViewport?.removeEventListener('scroll', fitViewport);
   });
 }
 
