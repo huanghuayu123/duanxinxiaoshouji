@@ -585,6 +585,11 @@ function handleTavernMessages(): void {
   const settings = loadSettings();
   if (!settings.tavernToPhone) return;
 
+  syncTavernHistory(false);
+}
+
+function syncTavernHistory(forceToast = true): number {
+  const settings = loadSettings();
   try {
     const seen = loadSeenSegments();
     let added = 0;
@@ -600,13 +605,19 @@ function handleTavernMessages(): void {
       });
     }
 
-    if (added === 0) return;
+    if (added === 0) {
+      if (forceToast) parentToast('没有发现新的历史短信', 'info');
+      return 0;
+    }
 
     saveSeenSegments(seen);
     renderMessages();
-    parentToast(`收到 ${added} 条手机消息`, 'success');
+    if (forceToast) parentToast(`读取到 ${added} 条手机消息`, 'success');
+    return added;
   } catch (err) {
     console.warn('[PA] error processing tavern message:', err);
+    if (forceToast) parentToast('读取聊天记录失败，请看控制台', 'error');
+    return 0;
   }
 }
 
@@ -843,6 +854,7 @@ function createUI(parentId: string): void {
           <div class="pa-setting-row__desc" style="margin-bottom:6px">留空则自动使用酒馆当前角色名</div>
           <input id="pa-contact-input" class="pa-settings-input" type="text" placeholder="留空自动" />
         </div>
+        <button id="pa-sync-history-btn" class="pa-settings-btn">读取过去聊天记录</button>
         <button id="pa-clear-btn" class="pa-settings-btn pa-settings-btn--danger">清除所有手机消息</button>
         <div class="pa-settings__info">
           提示：AI 输出包含 <code>&lt;短信&gt;内容&lt;/短信&gt;</code> 时，内容会自动出现在手机面板中。
@@ -1309,6 +1321,10 @@ function bindEvents(): void {
   });
 
   // Clear messages
+  getUiDocument().getElementById('pa-sync-history-btn')?.addEventListener('click', () => {
+    syncTavernHistory(true);
+  });
+
   getUiDocument().getElementById('pa-clear-btn')?.addEventListener('click', () => {
     if (confirm('确定清除所有手机消息？')) {
       clearMessages();

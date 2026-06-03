@@ -5,14 +5,11 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.6'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.7'
 ```
 
-## v1.0.6
+## v1.0.7
 
-- 移除左下角备用按钮和 `Ctrl+Shift+M` 快捷键。
-- 悬浮窗在面板打开后仍保留，点击可收起面板。
-- 标题角色名改为酒馆助手宏 `{{char}}`。
-- 手机消息支持编辑和删除。
-- 增强发送桥：手机内发送会写入酒馆输入框，并触发酒馆发送按钮。
-- 悬浮窗和手机面板支持拖动。
+- 新增“读取过去聊天记录”按钮，可从当前酒馆聊天中读取已有 `<短信>...</短信>` 内容到小手机。
+- 读取时会跳过已经同步过的同一段短信，减少重复导入。
+- 保留 v1.0.6 的悬浮窗开关、拖动、编辑、删除和发送包裹 `<短信>` 功能。

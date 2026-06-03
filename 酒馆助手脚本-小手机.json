@@ -1,17 +1,13 @@
-﻿{
-    "type":  "script",
-    "enabled":  true,
-    "name":  "小手机",
-    "id":  "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-    "content":  "import \u0027https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.6\u0027\n",
-    "info":  "小手机短信悬浮窗 v1.0.6。移除备用按钮和快捷键；悬浮窗可点击开关；标题使用 {{char}}；消息支持编辑和删除。",
-    "button":  {
-                   "enabled":  true,
-                   "buttons":  [
-
-                               ]
-               },
-    "data":  {
-
-             }
+{
+  "type": "script",
+  "enabled": true,
+  "name": "小手机",
+  "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
+  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.7'\n",
+  "info": "小手机短信悬浮窗 v1.0.7。新增读取过去聊天记录，可从当前酒馆聊天中读取已有 <短信>...</短信> 内容；保留悬浮窗开关、拖动、编辑、删除和发送包裹 <短信> 功能。",
+  "button": {
+    "enabled": true,
+    "buttons": []
+  },
+  "data": {}
 }
