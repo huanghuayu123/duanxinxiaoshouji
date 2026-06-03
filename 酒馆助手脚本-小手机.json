@@ -3,8 +3,8 @@
   "enabled": true,
   "name": "小手机",
   "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.0.17/dist/tavern-phone-script/index.js?v=v1.0.17'\n",
-  "info": "小手机短信悬浮窗 v1.0.17。从头重写，仅参考旧版功能：悬浮手机按钮、点击打开窗口、拖动、读取 <短信>、读取历史、编辑/删除短信，并把手机发送内容用 <短信> 写回酒馆输入框；适配手机虚拟键盘弹出时底部栏上移；打开小手机后会清掉右上角未读气泡。",
+  "content": "import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.0.18/dist/tavern-phone-script/index.js?v=v1.0.18'\n",
+  "info": "小手机短信悬浮窗 v1.0.18。从头重写，仅参考旧版功能：悬浮手机按钮、点击打开窗口、拖动、读取 <短信>、读取历史、编辑/删除短信，并把手机发送内容用 <短信> 写回酒馆输入框；只读取 AI/角色消息里的 <短信>，不会把用户自己发送的 <短信> 回读进小手机；适配手机虚拟键盘弹出时底部栏上移；打开小手机后会清掉右上角未读气泡。",
   "button": {
     "enabled": true,
     "buttons": []

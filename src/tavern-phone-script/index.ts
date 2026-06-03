@@ -17,6 +17,12 @@ interface PhoneState {
   positions: Record<string, { left: number; top: number }>;
 }
 
+interface ChatEntry {
+  id: string;
+  text: string;
+  isUser: boolean;
+}
+
 interface ViewportInfo {
   width: number;
   height: number;
@@ -28,7 +34,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.17';
+const VERSION = 'v1.0.18';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -224,7 +230,18 @@ function clearPhoneMessages(): void {
   renderMessages();
 }
 
-function readChatMessages(): Array<{ id: string; text: string }> {
+function isUserChatMessage(message: Record<string, unknown>, win: Record<string, unknown>): boolean {
+  if (message.is_user === true || message.isUser === true) return true;
+  if (message.role === 'user' || message.role === 'human') return true;
+  if (message.sender === 'user' || message.type === 'user') return true;
+  return typeof message.name === 'string' && typeof win.name1 === 'string' && message.name === win.name1;
+}
+
+function isSystemChatMessage(message: Record<string, unknown>): boolean {
+  return message.is_system === true || message.role === 'system' || message.role === 'narrator';
+}
+
+function readChatMessages(): ChatEntry[] {
   const win = getParentWindow() as unknown as Record<string, unknown>;
 
   try {
@@ -247,6 +264,7 @@ function readChatMessages(): Array<{ id: string; text: string }> {
         .map((message, index) => ({
           id: String(message.message_id ?? index),
           text: typeof message.message === 'string' ? message.message : '',
+          isUser: isUserChatMessage(message as unknown as Record<string, unknown>, win) || isSystemChatMessage(message as unknown as Record<string, unknown>),
         }))
         .filter(message => message.text.trim());
     }
@@ -254,24 +272,26 @@ function readChatMessages(): Array<{ id: string; text: string }> {
     // Fall through to SillyTavern globals.
   }
 
-  const st = win.SillyTavern as { chat?: Array<{ mes?: unknown; mesid?: unknown }> } | undefined;
+  const st = win.SillyTavern as { chat?: Array<{ mes?: unknown; mesid?: unknown; is_user?: unknown; role?: unknown; name?: unknown; is_system?: unknown }> } | undefined;
   if (Array.isArray(st?.chat)) {
     return st.chat
       .map((message, index) => ({
         id: String(message.mesid ?? index),
         text: typeof message.mes === 'string' ? message.mes : '',
+        isUser: isUserChatMessage(message as Record<string, unknown>, win) || isSystemChatMessage(message as Record<string, unknown>),
       }))
       .filter(message => message.text.trim());
   }
 
   const context = typeof (win.SillyTavern as { getContext?: unknown } | undefined)?.getContext === 'function'
-    ? ((win.SillyTavern as { getContext: () => { chat?: Array<{ mes?: unknown; mesid?: unknown }> } }).getContext())
+    ? ((win.SillyTavern as { getContext: () => { chat?: Array<{ mes?: unknown; mesid?: unknown; is_user?: unknown; role?: unknown; name?: unknown; is_system?: unknown }> } }).getContext())
     : null;
   if (Array.isArray(context?.chat)) {
     return context.chat
       .map((message, index) => ({
         id: String(message.mesid ?? index),
         text: typeof message.mes === 'string' ? message.mes : '',
+        isUser: isUserChatMessage(message as Record<string, unknown>, win) || isSystemChatMessage(message as Record<string, unknown>),
       }))
       .filter(message => message.text.trim());
   }
@@ -285,6 +305,7 @@ function syncFromChat(showResult = false): number {
   let added = 0;
 
   for (const chatMessage of readChatMessages()) {
+    if (chatMessage.isUser) continue;
     extractSms(chatMessage.text).forEach((text, index) => {
       const signature = `${chatMessage.id}:${index}:${hashText(text)}`;
       if (seen.has(signature)) return;
