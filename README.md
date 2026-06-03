@@ -5,8 +5,14 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.10'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.11'
 ```
+
+## v1.0.11
+
+- 面板和外层容器改为最高优先级内联样式，避免被手机酒馆/远程环境覆盖。
+- 面板层级提升到与悬浮按钮同级最高层。
+- 打开后会再次检查真实可见状态，如果仍不可见就强制重设尺寸和位置。
 
 ## v1.0.10
 

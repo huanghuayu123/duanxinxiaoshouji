@@ -108,10 +108,14 @@ function placeElement(el: HTMLElement, left: number, top: number): void {
   const safeLeft = clamp(left, 8, Math.max(8, view.width - rect.width - 8));
   const safeTop = clamp(top, 8, Math.max(8, view.height - rect.height - 8));
 
-  el.style.left = `${safeLeft}px`;
-  el.style.top = `${safeTop}px`;
-  el.style.right = 'auto';
-  el.style.bottom = 'auto';
+  setImportantStyle(el, 'left', `${safeLeft}px`);
+  setImportantStyle(el, 'top', `${safeTop}px`);
+  setImportantStyle(el, 'right', 'auto');
+  setImportantStyle(el, 'bottom', 'auto');
+}
+
+function setImportantStyle(el: HTMLElement, name: string, value: string): void {
+  el.style.setProperty(name, value, 'important');
 }
 
 function restorePosition(key: string, el: HTMLElement): void {
@@ -741,14 +745,12 @@ function createUI(parentId: string): void {
   const doc = getUiDocument();
   const container = doc.getElementById(parentId);
   if (!container) return;
-  Object.assign(container.style, {
-    position: 'fixed',
-    inset: '0',
-    zIndex: '2147483647',
-    width: '100vw',
-    height: '100dvh',
-    pointerEvents: 'none',
-  });
+  setImportantStyle(container, 'position', 'fixed');
+  setImportantStyle(container, 'inset', '0');
+  setImportantStyle(container, 'z-index', '2147483647');
+  setImportantStyle(container, 'width', '100vw');
+  setImportantStyle(container, 'height', '100dvh');
+  setImportantStyle(container, 'pointer-events', 'none');
 
   // FAB
   const fab = doc.createElement('div');
@@ -762,10 +764,8 @@ function createUI(parentId: string): void {
   fab.setAttribute('role', 'button');
   fab.setAttribute('tabindex', '0');
   fab.setAttribute('aria-label', '打开手机面板');
-  Object.assign(fab.style, {
-    pointerEvents: 'auto',
-    zIndex: '2147483647',
-  });
+  setImportantStyle(fab, 'pointer-events', 'auto');
+  setImportantStyle(fab, 'z-index', '2147483647');
   container.appendChild(fab);
   restorePosition('fab', fab);
 
@@ -773,10 +773,8 @@ function createUI(parentId: string): void {
   const panel = doc.createElement('div');
   panel.id = 'pa-panel';
   panel.className = 'pa-panel pa-panel--hidden';
-  Object.assign(panel.style, {
-    pointerEvents: 'auto',
-    zIndex: '2147483646',
-  });
+  setImportantStyle(panel, 'pointer-events', 'auto');
+  setImportantStyle(panel, 'z-index', '2147483647');
 
   panel.innerHTML = `
     <div class="pa-statusbar">
@@ -892,10 +890,12 @@ function togglePanel(show?: boolean): void {
 
 function revealPanel(panel: HTMLElement): void {
   panel.classList.remove('pa-panel--hidden');
-  panel.style.display = 'flex';
-  panel.style.visibility = 'visible';
-  panel.style.opacity = '1';
-  panel.style.pointerEvents = 'auto';
+  setImportantStyle(panel, 'position', 'fixed');
+  setImportantStyle(panel, 'display', 'flex');
+  setImportantStyle(panel, 'visibility', 'visible');
+  setImportantStyle(panel, 'opacity', '1');
+  setImportantStyle(panel, 'pointer-events', 'auto');
+  setImportantStyle(panel, 'z-index', '2147483647');
 
   requestAnimationFrame(() => {
     const doc = getUiDocument();
@@ -905,16 +905,18 @@ function revealPanel(panel: HTMLElement): void {
     const invalidRect = rect.width < 80 || rect.height < 120;
 
     if (isMobile) {
-      panel.style.width = `${Math.max(280, view.width - 16)}px`;
-      panel.style.height = `${Math.max(320, view.height - 16)}px`;
+      setImportantStyle(panel, 'width', `${Math.max(280, view.width - 16)}px`);
+      setImportantStyle(panel, 'height', `${Math.max(320, view.height - 16)}px`);
+      setImportantStyle(panel, 'max-height', `${Math.max(320, view.height - 16)}px`);
       placeElement(panel, 8, 8);
       savePosition('panel', panel);
+      verifyPanelVisible(panel);
       return;
     }
 
     if (invalidRect) {
-      panel.style.width = '340px';
-      panel.style.height = '520px';
+      setImportantStyle(panel, 'width', '340px');
+      setImportantStyle(panel, 'height', '520px');
     }
 
     const nextRect = panel.getBoundingClientRect();
@@ -929,10 +931,44 @@ function revealPanel(panel: HTMLElement): void {
       const top = Math.max(8, view.height - nextRect.height - 96);
       placeElement(panel, left, top);
       savePosition('panel', panel);
+      verifyPanelVisible(panel);
       return;
     }
 
     placeElement(panel, nextRect.left, nextRect.top);
+    verifyPanelVisible(panel);
+  });
+}
+
+function verifyPanelVisible(panel: HTMLElement): void {
+  requestAnimationFrame(() => {
+    const doc = getUiDocument();
+    const view = getViewportSize(doc);
+    const rect = panel.getBoundingClientRect();
+    const style = doc.defaultView?.getComputedStyle(panel);
+    const hidden =
+      style?.display === 'none' ||
+      style?.visibility === 'hidden' ||
+      rect.width < 80 ||
+      rect.height < 120 ||
+      rect.right < 8 ||
+      rect.bottom < 8 ||
+      rect.left > view.width - 8 ||
+      rect.top > view.height - 8;
+
+    if (!hidden) return;
+
+    panel.classList.remove('pa-panel--hidden');
+    setImportantStyle(panel, 'position', 'fixed');
+    setImportantStyle(panel, 'display', 'flex');
+    setImportantStyle(panel, 'visibility', 'visible');
+    setImportantStyle(panel, 'opacity', '1');
+    setImportantStyle(panel, 'pointer-events', 'auto');
+    setImportantStyle(panel, 'z-index', '2147483647');
+    setImportantStyle(panel, 'width', `${Math.max(280, Math.min(340, view.width - 16))}px`);
+    setImportantStyle(panel, 'height', `${Math.max(320, Math.min(520, view.height - 16))}px`);
+    placeElement(panel, 8, 8);
+    savePosition('panel', panel);
   });
 }
 
