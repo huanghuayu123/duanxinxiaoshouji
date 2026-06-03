@@ -5,8 +5,13 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.16'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.0.17/dist/tavern-phone-script/index.js?v=v1.0.17'
 ```
+
+## v1.0.17
+
+- Import URL now points at the immutable `v1.0.17` tag instead of `main`, so Tavern/CDN caching is less likely to keep showing an older banner.
+- Opening the phone marks current SMS as read and clears the red unread badge.
 
 ## v1.0.15
 

@@ -13,6 +13,7 @@ interface PhoneMessage {
 interface PhoneState {
   messages: PhoneMessage[];
   seen: string[];
+  readUntil?: number;
   positions: Record<string, { left: number; top: number }>;
 }
 
@@ -27,7 +28,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.16';
+const VERSION = 'v1.0.17';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -55,15 +56,16 @@ function getHostDocument(): Document {
 function loadState(): PhoneState {
   try {
     const raw = getParentWindow().localStorage?.getItem(STATE_KEY) ?? localStorage.getItem(STATE_KEY);
-    if (!raw) return { messages: [], seen: [], positions: {} };
+    if (!raw) return { messages: [], seen: [], readUntil: 0, positions: {} };
     const parsed = JSON.parse(raw) as Partial<PhoneState>;
     return {
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       seen: Array.isArray(parsed.seen) ? parsed.seen : [],
+      readUntil: typeof parsed.readUntil === 'number' ? parsed.readUntil : 0,
       positions: parsed.positions && typeof parsed.positions === 'object' ? parsed.positions : {},
     };
   } catch {
-    return { messages: [], seen: [], positions: {} };
+    return { messages: [], seen: [], readUntil: 0, positions: {} };
   }
 }
 
@@ -71,6 +73,7 @@ function saveState(state: PhoneState): void {
   const next: PhoneState = {
     messages: state.messages.slice(-MAX_MESSAGES),
     seen: state.seen.slice(-MAX_SEEN),
+    readUntil: state.readUntil ?? 0,
     positions: state.positions,
   };
   try {
@@ -176,7 +179,16 @@ function addPhoneMessage(role: PhoneRole, text: string, source?: string): void {
   const clean = text.trim();
   if (!clean) return;
   const state = loadState();
-  state.messages.push({ id: uid(), role, text: clean, time: Date.now(), source });
+  const time = Date.now();
+  state.messages.push({ id: uid(), role, text: clean, time, source });
+  if (panelOpen) state.readUntil = time;
+  saveState(state);
+  renderMessages();
+}
+
+function markMessagesRead(): void {
+  const state = loadState();
+  state.readUntil = Date.now();
   saveState(state);
   renderMessages();
 }
@@ -451,6 +463,7 @@ function openPanel(force = true): void {
   setStyle(panel, 'pointer-events', 'auto');
   keepPanelVisible(panel);
   syncFromChat(false);
+  markMessagesRead();
   scrollMessagesToBottom();
 }
 
@@ -532,7 +545,7 @@ function renderMessages(): void {
   }
 
   const badge = byId<HTMLElement>('xp-badge');
-  const unread = messages.filter(message => message.role === 'char').length;
+  const unread = panelOpen ? 0 : messages.filter(message => message.role === 'char' && message.time > (state.readUntil ?? 0)).length;
   if (badge) {
     badge.hidden = unread === 0;
     badge.textContent = String(unread);
