@@ -19,7 +19,7 @@ interface PhoneState {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.14';
+const VERSION = 'v1.0.15';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -327,7 +327,6 @@ function clickSend(button: HTMLElement): void {
   ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(type => {
     button.dispatchEvent(new win.MouseEvent(type, { bubbles: true, cancelable: true, view: win }));
   });
-  button.click?.();
 }
 
 function sendToTavern(text: string): boolean {

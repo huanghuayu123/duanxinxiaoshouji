@@ -5,8 +5,13 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.14'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.15'
 ```
+
+## v1.0.15
+
+- 自主调试发送链路，修复小手机写回酒馆输入框后可能触发两次发送按钮的问题。
+- 新增本地模拟酒馆调试流程，覆盖悬浮按钮打开、历史 `<短信>` 读取、发送回写、编辑/删除、移动端面板归位和按钮拖动保存。
 
 ## v1.0.14
 
