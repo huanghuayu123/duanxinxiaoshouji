@@ -34,10 +34,11 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.18';
+const VERSION = 'v1.0.19';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
+const migratedKeys = new Set<string>();
 
 let hostDocument: Document = document;
 let panelOpen = false;
@@ -59,9 +60,73 @@ function getHostDocument(): Document {
   }
 }
 
-function loadState(): PhoneState {
+function getTavernContext(): Record<string, unknown> | null {
+  const win = getParentWindow() as unknown as Record<string, unknown>;
+  const st = win.SillyTavern as { getContext?: unknown } | undefined;
+  if (typeof st?.getContext === 'function') {
+    try {
+      return (st.getContext as () => Record<string, unknown>)();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function valueAsString(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
+function readRecordValue(source: unknown, keys: string[]): string {
+  if (!source || typeof source !== 'object') return '';
+  const record = source as Record<string, unknown>;
+  for (const key of keys) {
+    const value = valueAsString(record[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function getCurrentCharacterKey(): string {
+  const win = getParentWindow() as unknown as Record<string, unknown>;
+  const context = getTavernContext();
+  const st = win.SillyTavern as Record<string, unknown> | undefined;
+  const id = readRecordValue(context, ['characterId', 'character_id', 'this_chid'])
+    || readRecordValue(win, ['this_chid', 'characterId', 'character_id'])
+    || readRecordValue(st, ['this_chid', 'characterId', 'character_id']);
+  const characters = (context?.characters ?? win.characters ?? st?.characters) as unknown;
+  const selected = Array.isArray(characters) && id !== '' ? characters[Number(id)] : null;
+  const avatar = readRecordValue(selected, ['avatar', 'avatar_url', 'filename']);
+  const name = readRecordValue(selected, ['name'])
+    || readRecordValue(context, ['name2', 'characterName'])
+    || readRecordValue(win, ['name2', 'characterName'])
+    || readRecordValue(st, ['name2', 'characterName']);
+  const source = [id, avatar, name].filter(Boolean).join('|') || 'global';
+  return `${STATE_KEY}:${hashText(source)}`;
+}
+
+function getStorage(): Storage | null {
   try {
-    const raw = getParentWindow().localStorage?.getItem(STATE_KEY) ?? localStorage.getItem(STATE_KEY);
+    return getParentWindow().localStorage ?? localStorage;
+  } catch {
+    try {
+      return localStorage;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function loadState(): PhoneState {
+  const key = getCurrentCharacterKey();
+  const storage = getStorage();
+  try {
+    let raw = storage?.getItem(key) ?? null;
+    if (!raw && !migratedKeys.has(key)) {
+      migratedKeys.add(key);
+      raw = storage?.getItem(STATE_KEY) ?? null;
+      if (raw) storage?.setItem(key, raw);
+    }
     if (!raw) return { messages: [], seen: [], readUntil: 0, positions: {} };
     const parsed = JSON.parse(raw) as Partial<PhoneState>;
     return {
@@ -76,6 +141,8 @@ function loadState(): PhoneState {
 }
 
 function saveState(state: PhoneState): void {
+  const key = getCurrentCharacterKey();
+  const storage = getStorage();
   const next: PhoneState = {
     messages: state.messages.slice(-MAX_MESSAGES),
     seen: state.seen.slice(-MAX_SEEN),
@@ -84,8 +151,7 @@ function saveState(state: PhoneState): void {
   };
   try {
     const raw = JSON.stringify(next);
-    getParentWindow().localStorage?.setItem(STATE_KEY, raw);
-    localStorage.setItem(STATE_KEY, raw);
+    storage?.setItem(key, raw);
   } catch {
     // local storage may be unavailable in some embedded modes.
   }
