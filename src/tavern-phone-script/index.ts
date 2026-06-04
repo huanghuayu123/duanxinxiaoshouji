@@ -16,12 +16,13 @@ interface PhoneState {
   readUntil?: number;
   positions: Record<string, { left: number; top: number }>;
   avatars: Partial<Record<PhoneRole, string>>;
+  autoSyncPaused?: boolean;
 }
 
 interface ChatEntry {
   id: string;
   text: string;
-  isUser: boolean;
+  role: PhoneRole | 'system';
 }
 
 interface ViewportInfo {
@@ -35,7 +36,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.20';
+const VERSION = 'v1.0.21';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -136,6 +137,7 @@ function loadState(): PhoneState {
       readUntil: typeof parsed.readUntil === 'number' ? parsed.readUntil : 0,
       positions: parsed.positions && typeof parsed.positions === 'object' ? parsed.positions : {},
       avatars: parsed.avatars && typeof parsed.avatars === 'object' ? parsed.avatars : {},
+      autoSyncPaused: parsed.autoSyncPaused === true,
     };
   } catch {
     return { messages: [], seen: [], readUntil: 0, positions: {}, avatars: {} };
@@ -151,6 +153,7 @@ function saveState(state: PhoneState): void {
     readUntil: state.readUntil ?? 0,
     positions: state.positions,
     avatars: state.avatars ?? {},
+    autoSyncPaused: state.autoSyncPaused === true,
   };
   try {
     const raw = JSON.stringify(next);
@@ -303,17 +306,52 @@ function editPhoneMessage(id: string): void {
   renderMessages();
 }
 
-function editAvatars(): void {
+function chooseLocalAvatar(role: PhoneRole): Promise<string | null> {
+  return new Promise(resolve => {
+    const win = hostDocument.defaultView ?? getParentWindow();
+    const input = hostDocument.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      const reader = new win.FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    }, { once: true });
+    hostDocument.body.appendChild(input);
+    input.click();
+  });
+}
+
+async function editAvatars(): Promise<void> {
   const state = loadState();
   const parent = getParentWindow();
   const currentUser = state.avatars?.user ?? '';
   const currentChar = state.avatars?.char ?? '';
-  const nextUser = parent.prompt?.('用户头像：输入图片链接或1-2个字，留空不改', currentUser) ?? prompt('用户头像：输入图片链接或1-2个字，留空不改', currentUser);
+  const useLocal = parent.confirm?.('要选择本地图片作为头像吗？取消则输入图片链接或文字。') ?? confirm('要选择本地图片作为头像吗？取消则输入图片链接或文字。');
+  if (useLocal) {
+    const userAvatar = await chooseLocalAvatar('user');
+    if (userAvatar) state.avatars.user = userAvatar;
+    const charAvatar = await chooseLocalAvatar('char');
+    if (charAvatar) state.avatars.char = charAvatar;
+    saveState(state);
+    renderMessages();
+    return;
+  }
+
+  const nextUser = parent.prompt?.('用户头像：输入图片链接、file://本地文件或1-2个字，留空不改', currentUser) ?? prompt('用户头像：输入图片链接、file://本地文件或1-2个字，留空不改', currentUser);
   if (nextUser !== null) {
     const value = nextUser.trim();
     if (value) state.avatars.user = value;
   }
-  const nextChar = parent.prompt?.('角色头像：输入图片链接或1-2个字，留空不改', currentChar) ?? prompt('角色头像：输入图片链接或1-2个字，留空不改', currentChar);
+  const nextChar = parent.prompt?.('角色头像：输入图片链接、file://本地文件或1-2个字，留空不改', currentChar) ?? prompt('角色头像：输入图片链接、file://本地文件或1-2个字，留空不改', currentChar);
   if (nextChar !== null) {
     const value = nextChar.trim();
     if (value) state.avatars.char = value;
@@ -328,6 +366,7 @@ function clearPhoneMessages(): void {
   const state = loadState();
   state.messages = [];
   state.seen = [];
+  state.autoSyncPaused = true;
   saveState(state);
   renderMessages();
 }
@@ -341,6 +380,11 @@ function isUserChatMessage(message: Record<string, unknown>, win: Record<string,
 
 function isSystemChatMessage(message: Record<string, unknown>): boolean {
   return message.is_system === true || message.role === 'system' || message.role === 'narrator';
+}
+
+function getChatEntryRole(message: Record<string, unknown>, win: Record<string, unknown>): PhoneRole | 'system' {
+  if (isSystemChatMessage(message)) return 'system';
+  return isUserChatMessage(message, win) ? 'user' : 'char';
 }
 
 function readChatMessages(): ChatEntry[] {
@@ -366,7 +410,7 @@ function readChatMessages(): ChatEntry[] {
         .map((message, index) => ({
           id: String(message.message_id ?? index),
           text: typeof message.message === 'string' ? message.message : '',
-          isUser: isUserChatMessage(message as unknown as Record<string, unknown>, win) || isSystemChatMessage(message as unknown as Record<string, unknown>),
+          role: getChatEntryRole(message as unknown as Record<string, unknown>, win),
         }))
         .filter(message => message.text.trim());
     }
@@ -380,7 +424,7 @@ function readChatMessages(): ChatEntry[] {
       .map((message, index) => ({
         id: String(message.mesid ?? index),
         text: typeof message.mes === 'string' ? message.mes : '',
-        isUser: isUserChatMessage(message as Record<string, unknown>, win) || isSystemChatMessage(message as Record<string, unknown>),
+        role: getChatEntryRole(message as Record<string, unknown>, win),
       }))
       .filter(message => message.text.trim());
   }
@@ -393,7 +437,7 @@ function readChatMessages(): ChatEntry[] {
       .map((message, index) => ({
         id: String(message.mesid ?? index),
         text: typeof message.mes === 'string' ? message.mes : '',
-        isUser: isUserChatMessage(message as Record<string, unknown>, win) || isSystemChatMessage(message as Record<string, unknown>),
+        role: getChatEntryRole(message as Record<string, unknown>, win),
       }))
       .filter(message => message.text.trim());
   }
@@ -403,16 +447,22 @@ function readChatMessages(): ChatEntry[] {
 
 function syncFromChat(showResult = false): number {
   const state = loadState();
+  if (state.autoSyncPaused && !showResult) return 0;
+  if (showResult) state.autoSyncPaused = false;
   const seen = new Set(state.seen);
   let added = 0;
 
   for (const chatMessage of readChatMessages()) {
-    if (chatMessage.isUser) continue;
+    if (chatMessage.role === 'system') continue;
     extractSms(chatMessage.text).forEach((text, index) => {
       const signature = `${chatMessage.id}:${index}:${hashText(text)}`;
       if (seen.has(signature)) return;
+      if (chatMessage.role === 'user' && state.messages.some(message => message.role === 'user' && message.text === text)) {
+        seen.add(signature);
+        return;
+      }
       seen.add(signature);
-      state.messages.push({ id: uid(), role: 'char', text, time: Date.now(), source: signature });
+      state.messages.push({ id: uid(), role: chatMessage.role, text, time: Date.now(), source: signature });
       added += 1;
     });
   }
@@ -526,7 +576,7 @@ function createButton(label: string, className: string, title?: string): HTMLBut
 }
 
 function isImageAvatar(value: string): boolean {
-  return /^(https?:\/\/|data:image\/|blob:)/i.test(value);
+  return /^(https?:\/\/|data:image\/|blob:|file:\/\/)/i.test(value);
 }
 
 function fallbackAvatar(role: PhoneRole): string {
@@ -795,7 +845,7 @@ function bindUi(): void {
 
   byId<HTMLButtonElement>('xp-close')?.addEventListener('click', closePanel);
   byId<HTMLButtonElement>('xp-sync')?.addEventListener('click', () => syncFromChat(true));
-  byId<HTMLButtonElement>('xp-avatar')?.addEventListener('click', editAvatars);
+  byId<HTMLButtonElement>('xp-avatar')?.addEventListener('click', () => { void editAvatars(); });
   byId<HTMLButtonElement>('xp-clear')?.addEventListener('click', clearPhoneMessages);
 
   const doSend = (): void => {
