@@ -15,6 +15,7 @@ interface PhoneState {
   seen: string[];
   readUntil?: number;
   positions: Record<string, { left: number; top: number }>;
+  avatars: Partial<Record<PhoneRole, string>>;
 }
 
 interface ChatEntry {
@@ -34,7 +35,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.19';
+const VERSION = 'v1.0.20';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -127,16 +128,17 @@ function loadState(): PhoneState {
       raw = storage?.getItem(STATE_KEY) ?? null;
       if (raw) storage?.setItem(key, raw);
     }
-    if (!raw) return { messages: [], seen: [], readUntil: 0, positions: {} };
+    if (!raw) return { messages: [], seen: [], readUntil: 0, positions: {}, avatars: {} };
     const parsed = JSON.parse(raw) as Partial<PhoneState>;
     return {
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       seen: Array.isArray(parsed.seen) ? parsed.seen : [],
       readUntil: typeof parsed.readUntil === 'number' ? parsed.readUntil : 0,
       positions: parsed.positions && typeof parsed.positions === 'object' ? parsed.positions : {},
+      avatars: parsed.avatars && typeof parsed.avatars === 'object' ? parsed.avatars : {},
     };
   } catch {
-    return { messages: [], seen: [], readUntil: 0, positions: {} };
+    return { messages: [], seen: [], readUntil: 0, positions: {}, avatars: {} };
   }
 }
 
@@ -148,6 +150,7 @@ function saveState(state: PhoneState): void {
     seen: state.seen.slice(-MAX_SEEN),
     readUntil: state.readUntil ?? 0,
     positions: state.positions,
+    avatars: state.avatars ?? {},
   };
   try {
     const raw = JSON.stringify(next);
@@ -247,6 +250,20 @@ function extractSms(text: string): string[] {
   return matches;
 }
 
+function stripSmsWrapper(text: string): string {
+  const trimmed = text.trim();
+  const full = new RegExp(`^<${escapeTag(SMS_TAG)}>([\\s\\S]*?)<\\/${escapeTag(SMS_TAG)}>$`, 'i').exec(trimmed);
+  if (full) return full[1].trim();
+  return trimmed
+    .replace(new RegExp(`^<${escapeTag(SMS_TAG)}>`, 'i'), '')
+    .replace(new RegExp(`<\\/${escapeTag(SMS_TAG)}>$`, 'i'), '')
+    .trim();
+}
+
+function wrapSms(text: string): string {
+  return `<${SMS_TAG}>${stripSmsWrapper(text)}</${SMS_TAG}>`;
+}
+
 function addPhoneMessage(role: PhoneRole, text: string, source?: string): void {
   const clean = text.trim();
   if (!clean) return;
@@ -282,6 +299,25 @@ function editPhoneMessage(id: string): void {
   if (!trimmed) return;
   message.text = trimmed;
   message.time = Date.now();
+  saveState(state);
+  renderMessages();
+}
+
+function editAvatars(): void {
+  const state = loadState();
+  const parent = getParentWindow();
+  const currentUser = state.avatars?.user ?? '';
+  const currentChar = state.avatars?.char ?? '';
+  const nextUser = parent.prompt?.('用户头像：输入图片链接或1-2个字，留空不改', currentUser) ?? prompt('用户头像：输入图片链接或1-2个字，留空不改', currentUser);
+  if (nextUser !== null) {
+    const value = nextUser.trim();
+    if (value) state.avatars.user = value;
+  }
+  const nextChar = parent.prompt?.('角色头像：输入图片链接或1-2个字，留空不改', currentChar) ?? prompt('角色头像：输入图片链接或1-2个字，留空不改', currentChar);
+  if (nextChar !== null) {
+    const value = nextChar.trim();
+    if (value) state.avatars.char = value;
+  }
   saveState(state);
   renderMessages();
 }
@@ -446,7 +482,7 @@ function clickSend(button: HTMLElement): void {
 }
 
 function sendToTavern(text: string): boolean {
-  const wrapped = `<${SMS_TAG}>${text.trim()}</${SMS_TAG}>`;
+  const wrapped = wrapSms(text);
   const input = findInput();
   if (!input) {
     toast('没有找到酒馆输入框', 'warning');
@@ -489,6 +525,32 @@ function createButton(label: string, className: string, title?: string): HTMLBut
   return button;
 }
 
+function isImageAvatar(value: string): boolean {
+  return /^(https?:\/\/|data:image\/|blob:)/i.test(value);
+}
+
+function fallbackAvatar(role: PhoneRole): string {
+  if (role === 'user') return '我';
+  const win = getParentWindow() as unknown as Record<string, unknown>;
+  const context = getTavernContext();
+  const name = readRecordValue(context, ['name2', 'characterName'])
+    || readRecordValue(win, ['name2', 'characterName'])
+    || 'AI';
+  return Array.from(name.trim()).slice(0, 2).join('') || 'AI';
+}
+
+function renderAvatar(el: HTMLElement, role: PhoneRole, state: PhoneState): void {
+  const value = state.avatars?.[role]?.trim() || fallbackAvatar(role);
+  el.textContent = '';
+  el.style.removeProperty('background-image');
+  if (isImageAvatar(value)) {
+    el.style.setProperty('background-image', `url("${value.replace(/"/g, '%22')}")`);
+    el.setAttribute('aria-label', role === 'user' ? '用户头像' : '角色头像');
+    return;
+  }
+  el.textContent = Array.from(value).slice(0, 2).join('');
+}
+
 function buildUi(): void {
   hostDocument.getElementById(ROOT_ID)?.remove();
   installStyle();
@@ -508,6 +570,7 @@ function buildUi(): void {
         </div>
         <div class="xp-titlebar__actions">
           <button id="xp-sync" class="xp-icon-btn" type="button" title="读取过去聊天记录">读</button>
+          <button id="xp-avatar" class="xp-icon-btn" type="button" title="自定义头像">像</button>
           <button id="xp-clear" class="xp-icon-btn" type="button" title="清空短信">清</button>
           <button id="xp-close" class="xp-icon-btn" type="button" title="关闭">×</button>
         </div>
@@ -610,6 +673,13 @@ function renderMessages(): void {
       item.className = `xp-msg xp-msg--${message.role}`;
       item.dataset.id = message.id;
 
+      const avatar = hostDocument.createElement('div');
+      avatar.className = 'xp-msg__avatar';
+      renderAvatar(avatar, message.role, state);
+
+      const body = hostDocument.createElement('div');
+      body.className = 'xp-msg__body';
+
       const bubble = hostDocument.createElement('div');
       bubble.className = 'xp-msg__bubble';
       bubble.textContent = message.text;
@@ -626,7 +696,9 @@ function renderMessages(): void {
       del.addEventListener('click', () => deletePhoneMessage(message.id));
       actions.append(edit, del);
 
-      item.append(bubble, actions, meta);
+      body.append(bubble, actions, meta);
+      if (message.role === 'user') item.append(body, avatar);
+      else item.append(avatar, body);
       list.appendChild(item);
     }
   }
@@ -723,11 +795,12 @@ function bindUi(): void {
 
   byId<HTMLButtonElement>('xp-close')?.addEventListener('click', closePanel);
   byId<HTMLButtonElement>('xp-sync')?.addEventListener('click', () => syncFromChat(true));
+  byId<HTMLButtonElement>('xp-avatar')?.addEventListener('click', editAvatars);
   byId<HTMLButtonElement>('xp-clear')?.addEventListener('click', clearPhoneMessages);
 
   const doSend = (): void => {
     if (!input) return;
-    const text = input.value.trim();
+    const text = stripSmsWrapper(input.value);
     if (!text) return;
     addPhoneMessage('user', text);
     input.value = '';

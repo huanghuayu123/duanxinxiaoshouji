@@ -191,17 +191,51 @@
 
 .xp-msg {
   display: flex;
-  flex-direction: column;
-  max-width: 86%;
+  align-items: flex-end;
+  gap: 7px;
+  max-width: 94%;
 }
 
 .xp-msg--user {
   align-self: flex-end;
-  align-items: flex-end;
+  flex-direction: row;
 }
 
 .xp-msg--char {
   align-self: flex-start;
+  flex-direction: row;
+}
+
+.xp-msg__avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 1px solid var(--xp-line);
+  border-radius: 50%;
+  background-color: var(--xp-panel-2);
+  background-position: center;
+  background-size: cover;
+  color: var(--xp-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.xp-msg__body {
+  display: flex;
+  flex-direction: column;
+  max-width: min(260px, calc(100% - 35px));
+}
+
+.xp-msg--user .xp-msg__body {
+  align-items: flex-end;
+}
+
+.xp-msg--char .xp-msg__body {
   align-items: flex-start;
 }
 
@@ -349,6 +383,6 @@
   }
 
   .xp-msg {
-    max-width: 90%;
+    max-width: 96%;
   }
 }
