@@ -37,8 +37,9 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.1';
+const VERSION = 'v1.1.1';
 const SMS_TAG = '短信';
+const USER_SMS_TAG = '用户短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
 const migratedKeys = new Set<string>();
@@ -243,29 +244,29 @@ function escapeTag(tag: string): string {
   return tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function extractSms(text: string): string[] {
-  const matches: string[] = [];
-  const re = new RegExp(`<${escapeTag(SMS_TAG)}>([\\s\\S]*?)<\\/${escapeTag(SMS_TAG)}>`, 'gi');
+function extractTaggedSms(text: string): Array<{ role: PhoneRole; text: string }> {
+  const matches: Array<{ role: PhoneRole; text: string }> = [];
+  const re = new RegExp(`<(${escapeTag(USER_SMS_TAG)}|${escapeTag(SMS_TAG)})>([\\s\\S]*?)<\\/\\1>`, 'gi');
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
-    const value = match[1].trim();
-    if (value) matches.push(value);
+    const value = match[2].trim();
+    if (value) matches.push({ role: match[1] === USER_SMS_TAG ? 'user' : 'char', text: value });
   }
   return matches;
 }
 
 function stripSmsWrapper(text: string): string {
   const trimmed = text.trim();
-  const full = new RegExp(`^<${escapeTag(SMS_TAG)}>([\\s\\S]*?)<\\/${escapeTag(SMS_TAG)}>$`, 'i').exec(trimmed);
-  if (full) return full[1].trim();
+  const full = new RegExp(`^<(${escapeTag(USER_SMS_TAG)}|${escapeTag(SMS_TAG)})>([\\s\\S]*?)<\\/\\1>$`, 'i').exec(trimmed);
+  if (full) return full[2].trim();
   return trimmed
-    .replace(new RegExp(`^<${escapeTag(SMS_TAG)}>`, 'i'), '')
-    .replace(new RegExp(`<\\/${escapeTag(SMS_TAG)}>$`, 'i'), '')
+    .replace(new RegExp(`^<(${escapeTag(USER_SMS_TAG)}|${escapeTag(SMS_TAG)})>`, 'i'), '')
+    .replace(new RegExp(`<\\/(${escapeTag(USER_SMS_TAG)}|${escapeTag(SMS_TAG)})>$`, 'i'), '')
     .trim();
 }
 
-function wrapSms(text: string): string {
-  return `<${SMS_TAG}>${stripSmsWrapper(text)}</${SMS_TAG}>`;
+function wrapUserSms(text: string): string {
+  return `<${USER_SMS_TAG}>${stripSmsWrapper(text)}</${USER_SMS_TAG}>`;
 }
 
 function addPhoneMessage(role: PhoneRole, text: string, source?: string): void {
@@ -489,13 +490,14 @@ function syncFromChat(showResult = false): number {
 
   for (const chatMessage of readChatMessages()) {
     if (chatMessage.role === 'system') continue;
-    extractSms(chatMessage.text).forEach((text, index) => {
+    extractTaggedSms(chatMessage.text).forEach((tagged, index) => {
+      const { role, text } = tagged;
       const signature = `${chatMessage.id}:${index}:${hashText(text)}`;
       const existing = state.messages.find(message => message.source === signature);
       if (existing) {
-        existing.role = chatMessage.role;
+        existing.role = role;
         existing.text = text;
-        if (chatMessage.role === 'user') {
+        if (role === 'user') {
           state.messages = state.messages.filter(message => message === existing || message.source || message.role !== 'user' || message.text !== text);
         }
         seen.add(signature);
@@ -504,7 +506,7 @@ function syncFromChat(showResult = false): number {
       if (seen.has(signature)) {
         seen.delete(signature);
       }
-      const localUser = chatMessage.role === 'user'
+      const localUser = role === 'user'
         ? state.messages.find(message => !message.source && message.role === 'user' && message.text === text)
         : undefined;
       if (localUser) {
@@ -512,12 +514,12 @@ function syncFromChat(showResult = false): number {
         seen.add(signature);
         return;
       }
-      if (chatMessage.role === 'char' && state.messages.some(message => message.role === 'user' && sameSmsText(message.text, text))) {
+      if (role === 'char' && state.messages.some(message => message.role === 'user' && sameSmsText(message.text, text))) {
         seen.add(signature);
         return;
       }
       seen.add(signature);
-      state.messages.push({ id: uid(), role: chatMessage.role, text, time: Date.now(), source: signature });
+      state.messages.push({ id: uid(), role, text, time: Date.now(), source: signature });
       added += 1;
     });
   }
@@ -597,7 +599,7 @@ function clickSend(button: HTMLElement): void {
 }
 
 function sendToTavern(text: string): boolean {
-  const wrapped = wrapSms(text);
+  const wrapped = wrapUserSms(text);
   const input = findInput();
   if (!input) {
     toast('没有找到酒馆输入框', 'warning');
@@ -681,7 +683,7 @@ function buildUi(): void {
       <header id="xp-titlebar" class="xp-titlebar">
         <div>
           <div class="xp-titlebar__name">小手机</div>
-          <div class="xp-titlebar__sub">${VERSION} · &lt;${SMS_TAG}&gt;</div>
+          <div class="xp-titlebar__sub">${VERSION} · &lt;${SMS_TAG}&gt; / &lt;${USER_SMS_TAG}&gt;</div>
         </div>
         <div class="xp-titlebar__actions">
           <button id="xp-sync" class="xp-icon-btn" type="button" title="读取过去聊天记录">读</button>
@@ -780,7 +782,7 @@ function renderMessages(): void {
   if (messages.length === 0) {
     const empty = hostDocument.createElement('div');
     empty.className = 'xp-empty';
-    empty.textContent = `还没有短信。AI 回复里写 <${SMS_TAG}>内容</${SMS_TAG}> 后会自动出现在这里。`;
+    empty.textContent = `还没有短信。<${SMS_TAG}>进入角色侧，<${USER_SMS_TAG}>进入用户侧。`;
     list.appendChild(empty);
   } else {
     for (const message of messages) {

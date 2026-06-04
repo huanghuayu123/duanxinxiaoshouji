@@ -3,8 +3,8 @@
   "enabled": true,
   "name": "自动消息小手机",
   "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-  "content": "import 'https://cdn.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.1/dist/tavern-phone-script/index.js?v=v1.1'\n",
-  "info": "自动消息小手机 v1.1 正式版。导入后生成可拖动悬浮手机按钮；AI 回复中的 <短信>内容</短信> 会自动进入小手机，小手机发送时会把内容完整包裹为 <短信>内容</短信> 写回酒馆输入框。支持读取历史聊天、按酒馆楼层顺序排列、用户/角色分栏、编辑/删除消息、清空后手动再读、按角色卡绑定记录、自定义链接或本地头像，并修复移动端键盘顶起输入栏与同一用户短信被读到 U/C 两侧的问题。",
+  "content": "import 'https://cdn.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.1.1/dist/tavern-phone-script/index.js?v=v1.1.1'\n",
+  "info": "自动消息小手机 v1.1.1。导入后生成可拖动悬浮手机按钮；AI/角色侧 <短信>内容</短信> 会进入角色栏，<用户短信>内容</用户短信> 会进入用户栏；小手机发送时会自动用 <用户短信>内容</用户短信> 写回酒馆输入框。支持读取历史聊天、按酒馆楼层顺序排列、编辑/删除消息、清空后手动再读、按角色卡绑定记录、自定义链接或本地头像，并修复移动端键盘顶起输入栏与重复读取问题。",
   "button": {
     "enabled": true,
     "buttons": []
