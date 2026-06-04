@@ -37,7 +37,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.23';
+const VERSION = 'v1.0.24';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -448,7 +448,7 @@ function readChatMessages(): ChatEntry[] {
       .filter(message => message.text.trim()));
   }
 
-  const context = typeof (win.SillyTavern as { getContext?: unknown } | undefined)?.getContext === 'function'
+const context = typeof (win.SillyTavern as { getContext?: unknown } | undefined)?.getContext === 'function'
     ? ((win.SillyTavern as { getContext: () => { chat?: Array<{ mes?: unknown; mesid?: unknown; is_user?: unknown; role?: unknown; name?: unknown; is_system?: unknown }> } }).getContext())
     : null;
   if (Array.isArray(context?.chat)) {
@@ -463,6 +463,21 @@ function readChatMessages(): ChatEntry[] {
   }
 
   return [];
+}
+
+function sameSmsText(a: string, b: string): boolean {
+  return a.trim() === b.trim();
+}
+
+function removeCharacterCopiesOfUserSms(state: PhoneState): void {
+  const userTexts = new Set(
+    state.messages
+      .filter(message => message.role === 'user')
+      .map(message => message.text.trim())
+      .filter(Boolean),
+  );
+  if (!userTexts.size) return;
+  state.messages = state.messages.filter(message => message.role !== 'char' || !userTexts.has(message.text.trim()));
 }
 
 function syncFromChat(showResult = false): number {
@@ -497,11 +512,17 @@ function syncFromChat(showResult = false): number {
         seen.add(signature);
         return;
       }
+      if (chatMessage.role === 'char' && state.messages.some(message => message.role === 'user' && sameSmsText(message.text, text))) {
+        seen.add(signature);
+        return;
+      }
       seen.add(signature);
       state.messages.push({ id: uid(), role: chatMessage.role, text, time: Date.now(), source: signature });
       added += 1;
     });
   }
+
+  removeCharacterCopiesOfUserSms(state);
 
   state.messages.sort((a, b) => {
     const aSource = a.source?.split(':')[0];

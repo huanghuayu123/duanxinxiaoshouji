@@ -5,7 +5,7 @@
 脚本入口：
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.0.23/dist/tavern-phone-script/index.js?v=v1.0.23'
+import 'https://testingcf.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.0.24/dist/tavern-phone-script/index.js?v=v1.0.24'
 ```
 
 ## v1.0.17
