@@ -37,7 +37,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.22';
+const VERSION = 'v1.0.23';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -790,7 +790,12 @@ function renderMessages(): void {
       del.addEventListener('click', () => deletePhoneMessage(message.id));
       actions.append(edit, del);
 
-      body.append(bubble, actions, meta);
+      const foot = hostDocument.createElement('div');
+      foot.className = 'xp-msg__foot';
+      if (message.role === 'user') foot.append(actions, meta);
+      else foot.append(meta, actions);
+
+      body.append(bubble, foot);
       if (message.role === 'user') item.append(body, avatar);
       else item.append(avatar, body);
       list.appendChild(item);
