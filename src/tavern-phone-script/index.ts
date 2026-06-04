@@ -23,6 +23,7 @@ interface ChatEntry {
   id: string;
   text: string;
   role: PhoneRole | 'system';
+  order: number;
 }
 
 interface ViewportInfo {
@@ -36,7 +37,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.21';
+const VERSION = 'v1.0.22';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
@@ -372,19 +373,35 @@ function clearPhoneMessages(): void {
 }
 
 function isUserChatMessage(message: Record<string, unknown>, win: Record<string, unknown>): boolean {
-  if (message.is_user === true || message.isUser === true) return true;
-  if (message.role === 'user' || message.role === 'human') return true;
-  if (message.sender === 'user' || message.type === 'user') return true;
+  const role = valueAsString(message.role).toLowerCase();
+  const sender = valueAsString(message.sender).toLowerCase();
+  const type = valueAsString(message.type).toLowerCase();
+  const isUser = valueAsString(message.is_user ?? message.isUser).toLowerCase();
+  if (message.is_user === true || message.isUser === true || isUser === 'true' || isUser === '1') return true;
+  if (role === 'user' || role === 'human' || role === 'u') return true;
+  if (sender === 'user' || sender === 'human' || sender === 'u') return true;
+  if (type === 'user' || type === 'human' || type === 'u') return true;
   return typeof message.name === 'string' && typeof win.name1 === 'string' && message.name === win.name1;
 }
 
 function isSystemChatMessage(message: Record<string, unknown>): boolean {
-  return message.is_system === true || message.role === 'system' || message.role === 'narrator';
+  const role = valueAsString(message.role).toLowerCase();
+  const isSystem = valueAsString(message.is_system ?? message.isSystem).toLowerCase();
+  return message.is_system === true || message.isSystem === true || isSystem === 'true' || isSystem === '1' || role === 'system' || role === 'narrator' || role === 's';
 }
 
 function getChatEntryRole(message: Record<string, unknown>, win: Record<string, unknown>): PhoneRole | 'system' {
   if (isSystemChatMessage(message)) return 'system';
   return isUserChatMessage(message, win) ? 'user' : 'char';
+}
+
+function messageOrder(id: unknown, fallback: number): number {
+  const numeric = Number(id);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function sortChatEntries(entries: ChatEntry[]): ChatEntry[] {
+  return entries.sort((a, b) => a.order - b.order);
 }
 
 function readChatMessages(): ChatEntry[] {
@@ -406,13 +423,14 @@ function readChatMessages(): ChatEntry[] {
 
     const last = getLast ? getLast() : -1;
     if (last >= 0 && getMessages) {
-      return getMessages(`0-${last}`, { role: 'all', hide_state: 'all', include_swipes: false })
+      return sortChatEntries(getMessages(`0-${last}`, { role: 'all', hide_state: 'all', include_swipes: false })
         .map((message, index) => ({
           id: String(message.message_id ?? index),
           text: typeof message.message === 'string' ? message.message : '',
           role: getChatEntryRole(message as unknown as Record<string, unknown>, win),
+          order: messageOrder(message.message_id, index),
         }))
-        .filter(message => message.text.trim());
+        .filter(message => message.text.trim()));
     }
   } catch {
     // Fall through to SillyTavern globals.
@@ -420,26 +438,28 @@ function readChatMessages(): ChatEntry[] {
 
   const st = win.SillyTavern as { chat?: Array<{ mes?: unknown; mesid?: unknown; is_user?: unknown; role?: unknown; name?: unknown; is_system?: unknown }> } | undefined;
   if (Array.isArray(st?.chat)) {
-    return st.chat
+    return sortChatEntries(st.chat
       .map((message, index) => ({
         id: String(message.mesid ?? index),
         text: typeof message.mes === 'string' ? message.mes : '',
         role: getChatEntryRole(message as Record<string, unknown>, win),
+        order: messageOrder(message.mesid, index),
       }))
-      .filter(message => message.text.trim());
+      .filter(message => message.text.trim()));
   }
 
   const context = typeof (win.SillyTavern as { getContext?: unknown } | undefined)?.getContext === 'function'
     ? ((win.SillyTavern as { getContext: () => { chat?: Array<{ mes?: unknown; mesid?: unknown; is_user?: unknown; role?: unknown; name?: unknown; is_system?: unknown }> } }).getContext())
     : null;
   if (Array.isArray(context?.chat)) {
-    return context.chat
+    return sortChatEntries(context.chat
       .map((message, index) => ({
         id: String(message.mesid ?? index),
         text: typeof message.mes === 'string' ? message.mes : '',
         role: getChatEntryRole(message as Record<string, unknown>, win),
+        order: messageOrder(message.mesid, index),
       }))
-      .filter(message => message.text.trim());
+      .filter(message => message.text.trim()));
   }
 
   return [];
@@ -456,8 +476,24 @@ function syncFromChat(showResult = false): number {
     if (chatMessage.role === 'system') continue;
     extractSms(chatMessage.text).forEach((text, index) => {
       const signature = `${chatMessage.id}:${index}:${hashText(text)}`;
-      if (seen.has(signature)) return;
-      if (chatMessage.role === 'user' && state.messages.some(message => message.role === 'user' && message.text === text)) {
+      const existing = state.messages.find(message => message.source === signature);
+      if (existing) {
+        existing.role = chatMessage.role;
+        existing.text = text;
+        if (chatMessage.role === 'user') {
+          state.messages = state.messages.filter(message => message === existing || message.source || message.role !== 'user' || message.text !== text);
+        }
+        seen.add(signature);
+        return;
+      }
+      if (seen.has(signature)) {
+        seen.delete(signature);
+      }
+      const localUser = chatMessage.role === 'user'
+        ? state.messages.find(message => !message.source && message.role === 'user' && message.text === text)
+        : undefined;
+      if (localUser) {
+        localUser.source = signature;
         seen.add(signature);
         return;
       }
@@ -467,6 +503,14 @@ function syncFromChat(showResult = false): number {
     });
   }
 
+  state.messages.sort((a, b) => {
+    const aSource = a.source?.split(':')[0];
+    const bSource = b.source?.split(':')[0];
+    if (aSource !== undefined && bSource !== undefined) return messageOrder(aSource, 0) - messageOrder(bSource, 0);
+    if (aSource !== undefined) return -1;
+    if (bSource !== undefined) return 1;
+    return a.time - b.time;
+  });
   state.seen = Array.from(seen).slice(-MAX_SEEN);
   saveState(state);
   renderMessages();
