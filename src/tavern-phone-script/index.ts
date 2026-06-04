@@ -37,7 +37,7 @@ interface ViewportInfo {
 const ROOT_ID = 'xiaoxi-phone-root';
 const STYLE_ID = 'xiaoxi-phone-style';
 const STATE_KEY = 'xiaoxi_phone_state_v2';
-const VERSION = 'v1.0.24';
+const VERSION = 'v1.1';
 const SMS_TAG = '短信';
 const MAX_MESSAGES = 200;
 const MAX_SEEN = 800;
