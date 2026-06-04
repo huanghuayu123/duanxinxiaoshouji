@@ -3,7 +3,7 @@
   "enabled": true,
   "name": "小手机",
   "id": "7d36426b-7da8-4f3a-9f09-0e9c9cbe1a4a",
-  "content": "import 'https://cdn.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@main/dist/tavern-phone-script/index.js?v=v1.0.23'\n",
+  "content": "import 'https://cdn.jsdelivr.net/gh/huanghuayu123/duanxinxiaoshouji@v1.0.23/dist/tavern-phone-script/index.js?v=v1.0.23'\n",
   "info": "小手机短信悬浮窗 v1.0.23。修正短信列表布局，改/删/时间收进每条短信气泡下方的紧凑信息栏，不再漂在头像和气泡之间；读取历史短信按酒馆楼层时间顺序排列，兼容 U/C、字符串 is_user 等角色标记，用户短信固定显示在用户侧并合并重复项。清空小手机后暂停自动回读；头像支持图片链接、file:// 本地文件或选择本地图片。",
   "button": {
     "enabled": true,
